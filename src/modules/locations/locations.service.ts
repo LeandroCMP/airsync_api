@@ -47,4 +47,12 @@ export class LocationsService {
     await location.save();
     return location.toObject();
   }
+
+  async remove(tenantId: string, id: string, userId: string) {
+    const location = await this.findById(tenantId, id);
+    location.deletedAt = new Date();
+    location.updatedBy = userId;
+    await location.save();
+    return location.toObject();
+  }
 }

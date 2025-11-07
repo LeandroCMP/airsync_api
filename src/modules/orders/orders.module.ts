@@ -7,6 +7,8 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { FinanceModule } from '../finance/finance.module';
 import { PdfModule } from '../../pdf/pdf.module';
 import { FilesModule } from '../../core/files/files.module';
+import { EquipmentHistoryModule } from '../equipment-history/equipment-history.module';
+import { TenancyModule } from '../../core/tenancy/tenancy.module';
 
 @Module({
   imports: [
@@ -14,7 +16,9 @@ import { FilesModule } from '../../core/files/files.module';
     InventoryModule,
     FinanceModule,
     PdfModule,
-    FilesModule
+    FilesModule,
+    EquipmentHistoryModule,
+    TenancyModule
   ],
   controllers: [OrdersController],
   providers: [OrdersService],

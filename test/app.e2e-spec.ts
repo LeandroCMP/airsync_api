@@ -12,6 +12,7 @@ describe('App E2E', () => {
   let connection: Connection;
 
   beforeAll(async () => {
+    process.env.NODE_ENV = 'test';
     mongod = await MongoMemoryServer.create();
     process.env.MONGODB_URI = mongod.getUri();
     process.env.JWT_ACCESS_SECRET = 'test';
@@ -23,6 +24,7 @@ describe('App E2E', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('v1');
     await app.init();
     connection = await moduleFixture.get(getConnectionToken());
   });
@@ -48,7 +50,6 @@ describe('App E2E', () => {
 
     const loginRes = await request(app.getHttpServer())
       .post('/v1/auth/login')
-      .set('x-tenant-id', tenantId)
       .send({ email: 'tester@example.com', password: 'secret123' })
       .expect(200);
 
@@ -56,7 +57,6 @@ describe('App E2E', () => {
 
     const clientRes = await request(app.getHttpServer())
       .post('/v1/clients')
-      .set('x-tenant-id', tenantId)
       .set('Authorization', `Bearer ${token}`)
       .send({ name: 'Cliente Teste', phones: ['+5511'], emails: ['cliente@example.com'] })
       .expect(201);

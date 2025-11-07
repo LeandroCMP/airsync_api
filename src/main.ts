@@ -6,6 +6,7 @@ import * as helmet from 'helmet';
 import { json, urlencoded } from 'express';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
+import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
 import { join } from 'path';
 import * as fs from 'fs';
 import { SwaggerModule } from '@nestjs/swagger';
@@ -31,12 +32,14 @@ async function bootstrap() {
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ extended: true, limit: '10mb' }));
   app.use(RequestIdMiddleware);
+  app.use(RequestLoggerMiddleware);
 
   const uploadDir = config.get<string>('files.uploadDir');
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
   }
-  app.set('uploadDir', uploadDir);
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.set('uploadDir', uploadDir);
   app.use('/files', (await import('express')).static(join(process.cwd(), uploadDir)));
 
   app.setGlobalPrefix('v1');
@@ -53,9 +56,31 @@ async function bootstrap() {
   const swaggerDocument = SwaggerModule.createDocument(app, buildSwaggerConfig());
   SwaggerModule.setup('docs', app, swaggerDocument);
 
-  const port = config.get<number>('app.port') || 3000;
-  await app.listen(port);
-  logger.log(`AirSync API listening on port ${port}`);
+  const desired = config.get<number>('app.port') || 3000;
+
+  async function listenWithFallback(startPort: number, attempts = 5) {
+    let port = startPort;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        await app.listen(port);
+        if (port !== startPort) {
+          logger.warn(`Porta ${startPort} em uso; iniciando na porta ${port}`);
+        }
+        logger.log(`AirSync API ouvindo na porta ${port}`);
+        return;
+      } catch (err: any) {
+        if (err && err.code === 'EADDRINUSE') {
+          logger.warn(`Porta ${port} em uso; tentando ${port + 1}`);
+          port += 1;
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error(`Nenhuma porta livre encontrada a partir de ${startPort}`);
+  }
+
+  await listenWithFallback(desired, 5);
 }
 
 bootstrap();

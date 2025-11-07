@@ -1,10 +1,10 @@
-import { IsDateString, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsDate, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class VehicleMaintenanceDto {
   @IsString()
   type: string;
 
-  @IsDateString()
+  @IsDate()
   at: Date;
 
   @IsNumber()

@@ -15,19 +15,40 @@ export class PurchasesService {
   ) {}
 
   async create(tenantId: string, dto: CreatePurchaseDto, userId: string) {
-    const subtotal =
-      dto.subtotal ?? dto.items.reduce((acc, item) => acc + item.qty * item.unitCost, 0);
-    const total = subtotal + (dto.freight || 0);
-    const purchase = await this.purchaseModel.create({
-      tenantId,
-      supplierId: dto.supplierId,
-      status: dto.status,
-      items: dto.items,
-      totals: { subtotal, freight: dto.freight || 0, total },
-      notes: dto.notes,
-      updatedBy: userId
+    return executeWithTransactionIfSupported(this.purchaseModel.db, async (session) => {
+      const subtotal =
+        dto.subtotal ?? dto.items.reduce((acc, item) => acc + item.qty * item.unitCost, 0);
+      const total = subtotal + (dto.freight || 0);
+
+      const purchase = new this.purchaseModel({
+        tenantId,
+        supplierId: dto.supplierId,
+        status: dto.status,
+        items: dto.items,
+        totals: { subtotal, freight: dto.freight || 0, total },
+        notes: dto.notes,
+        updatedBy: userId
+      });
+
+      // Persist purchase first (so we have an id for movement ref)
+      await purchase.save(session ? { session } : undefined);
+
+      // If purchase is created as 'received', immediately add to stock and set receivedAt
+      if (purchase.status === 'received') {
+        purchase.receivedAt = new Date();
+        for (const item of purchase.items) {
+          await this.inventoryService.recordMovement(
+            tenantId,
+            { itemId: item.itemId, qty: item.qty, type: 'in', cost: item.unitCost, ref: `purchase:${purchase.id}` },
+            userId,
+            session || undefined
+          );
+        }
+        await purchase.save(session ? { session } : undefined);
+      }
+
+      return purchase.toObject();
     });
-    return purchase.toObject();
   }
 
   async findById(tenantId: string, id: string) {
@@ -36,6 +57,21 @@ export class PurchasesService {
       throw new NotFoundException({ code: 'NOT_FOUND', message: 'Purchase not found' });
     }
     return purchase;
+  }
+
+  async list(
+    tenantId: string,
+    filters: { status?: string; supplierId?: string; from?: string; to?: string }
+  ) {
+    const query: any = { tenantId, deletedAt: null };
+    if (filters.status) query.status = filters.status;
+    if (filters.supplierId) query.supplierId = filters.supplierId;
+    if (filters.from || filters.to) {
+      query.createdAt = {};
+      if (filters.from) query.createdAt.$gte = new Date(filters.from);
+      if (filters.to) query.createdAt.$lte = new Date(filters.to);
+    }
+    return this.purchaseModel.find(query).lean();
   }
 
   async receive(tenantId: string, id: string, dto: ReceivePurchaseDto, userId: string) {

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsNotEmpty, IsString } from 'class-validator';
+import { IsArray, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 class OrderMaterialDto {
   @IsString()
@@ -8,6 +8,14 @@ class OrderMaterialDto {
 
   @Type(() => Number)
   qty: number;
+
+  @IsString()
+  @IsOptional()
+  itemName?: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
 }
 
 export class OrderMaterialsDto {

@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { UsersService } from '../../modules/users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -11,6 +11,7 @@ import { Session, SessionDocument } from './session.schema';
 import { Model } from 'mongoose';
 import { randomUUID } from 'crypto';
 import { TenantService } from '../tenancy/tenant.service';
+import { AuthLogService } from './auth-log.service';
 
 @Injectable()
 export class AuthService {
@@ -19,6 +20,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly tenantService: TenantService,
+    private readonly authLog: AuthLogService,
     @InjectModel(Session.name) private readonly sessionModel: Model<SessionDocument>
   ) {}
 
@@ -38,6 +40,11 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
+    // Ensure email is unique globally before creating tenant to avoid orphan tenants
+    const existing = await this.usersService.findByEmailAnyTenant(dto.email);
+    if (existing) {
+      throw new ConflictException({ code: 'EMAIL_TAKEN', message: 'Email já está em uso' });
+    }
     const tenant = await this.tenantService.create(dto.tenantName);
     const admin = await this.usersService.create(
       tenant._id.toString(),
@@ -68,13 +75,51 @@ export class AuthService {
     return { tenantId: tenant._id.toString(), user: admin, ...tokens };
   }
 
-  async login(tenantId: string, dto: LoginDto, ip?: string, ua?: string) {
-    const userDoc = await this.usersService.findByEmail(tenantId, dto.email);
+  async login(tenantId: string | undefined, dto: LoginDto, ip?: string, ua?: string) {
+    let userDoc: any;
+    if (tenantId) {
+      userDoc = await this.usersService.findByEmail(tenantId, dto.email);
+    } else {
+      userDoc = await this.usersService.findByEmailAnyTenant(dto.email);
+      tenantId = userDoc?.tenantId;
+    }
     if (!userDoc) {
+      await this.authLog.logLoginAttempt({
+        email: dto.email,
+        tenantId,
+        success: false,
+        message: 'USER_NOT_FOUND',
+        ip,
+        ua
+      });
       throw new UnauthorizedException({ code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' });
+    }
+    if (userDoc.active === false) {
+      await this.authLog.logLoginAttempt({
+        email: dto.email,
+        tenantId,
+        userId: userDoc._id.toString(),
+        success: false,
+        message: 'USER_INACTIVE - account disabled',
+        ip,
+        ua
+      });
+      throw new ForbiddenException({
+        code: 'USER_INACTIVE',
+        message: 'User account is disabled. Contact your administrator to regain access.'
+      });
     }
     const isValid = await bcrypt.compare(dto.password, userDoc.passwordHash);
     if (!isValid) {
+      await this.authLog.logLoginAttempt({
+        email: dto.email,
+        tenantId,
+        userId: userDoc._id.toString(),
+        success: false,
+        message: 'INVALID_PASSWORD',
+        ip,
+        ua
+      });
       throw new UnauthorizedException({ code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' });
     }
     const session = await this.sessionModel.create({
@@ -92,6 +137,15 @@ export class AuthService {
       permissions: userDoc.permissions
     };
     const tokens = await this.generateTokens(payload, session);
+    await this.authLog.logLoginAttempt({
+      email: dto.email,
+      tenantId,
+      userId: userDoc._id.toString(),
+      success: true,
+      message: 'LOGIN_SUCCESS',
+      ip,
+      ua
+    });
     return { user: this.usersService.sanitize(userDoc), ...tokens };
   }
 
@@ -157,3 +211,4 @@ export class AuthService {
     return parseInt(value) * 1000;
   }
 }
+

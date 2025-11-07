@@ -24,6 +24,9 @@ export class Supplier {
   @Prop()
   notes?: string;
 
+  @Prop()
+  updatedBy?: string;
+
   @Prop({ default: null })
   deletedAt?: Date | null;
 }

@@ -1,9 +1,10 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model } from 'mongoose';
-import { Order, OrderDocument } from './order.schema';
+import { Order, OrderDocument, OrderBilling, BillingItem } from './order.schema';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
+import { RescheduleOrderDto } from './dto/reschedule-order.dto';
 import { InventoryService } from '../inventory/inventory.service';
 import { OrderMaterialsDto } from './dto/order-materials.dto';
 import { FilesService } from '../../core/files/files.service';
@@ -11,6 +12,9 @@ import { FinishOrderDto } from './dto/finish-order.dto';
 import { FinanceService } from '../finance/finance.service';
 import { PdfService } from '../../pdf/pdf.service';
 import { executeWithTransactionIfSupported } from '../../common/utils/transaction.util';
+import { EquipmentHistoryService } from '../equipment-history/equipment-history.service';
+import { TenantService } from '../../core/tenancy/tenant.service';
+import { OrderPaymentMethod } from './order.schema';
 
 @Injectable()
 export class OrdersService {
@@ -19,18 +23,42 @@ export class OrdersService {
     private readonly inventoryService: InventoryService,
     private readonly filesService: FilesService,
     private readonly financeService: FinanceService,
-    private readonly pdfService: PdfService
+    private readonly pdfService: PdfService,
+    private readonly equipmentHistory: EquipmentHistoryService,
+    private readonly tenantService: TenantService
   ) {}
 
-  private computeBilling(billingItems?: any[], discount = 0) {
-    const subtotal = (billingItems || []).reduce((sum, item) => sum + item.qty * item.unitPrice, 0);
+  private computeBilling(billingItems: BillingItem[] = [], discount = 0): OrderBilling {
+    const subtotal = billingItems.reduce((sum, item) => sum + item.qty * item.unitPrice, 0);
     return {
-      items: billingItems || [],
+      items: billingItems,
       subtotal,
       discount,
       total: Math.max(subtotal - discount, 0),
       status: 'pending'
-    };
+    } as OrderBilling;
+  }
+
+  private computePaymentTotals(
+    tenant: any,
+    method: OrderPaymentMethod,
+    amount: number,
+    installments?: number
+  ) {
+    const normalizedAmount = amount || 0;
+    let feePercent = 0;
+    if (method === 'CARD_CREDIT') {
+      const target = installments || 1;
+      feePercent =
+        tenant?.creditFees?.find((fee: any) => fee.installments === target)?.feePercent || 0;
+    } else if (method === 'CARD_DEBIT') {
+      feePercent = tenant?.debitFeePercent || 0;
+    } else if (method === 'CHEQUE') {
+      feePercent = tenant?.chequeFeePercent || 0;
+    }
+    const feeValue = Number(((normalizedAmount * feePercent) / 100).toFixed(2));
+    const netAmount = Number((normalizedAmount - feeValue).toFixed(2));
+    return { feePercent, feeValue, netAmount };
   }
 
   private async loadOrderForUpdate(
@@ -54,16 +82,20 @@ export class OrdersService {
       const materials = (dto.materials || []).map((m) => ({
         itemId: m.itemId,
         qty: m.qty,
+        itemName: m.itemName,
+        description: m.description,
         reserved: false
       }));
+      const status = dto.status || 'scheduled';
+      const scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : new Date();
 
       const order = new this.orderModel({
         tenantId,
         clientId: dto.clientId,
         locationId: dto.locationId,
         equipmentId: dto.equipmentId,
-        status: dto.status || 'scheduled',
-        scheduledAt: dto.scheduledAt,
+        status,
+        scheduledAt,
         technicianIds: dto.technicianIds || [],
         checklist: (dto.checklist || []).map((c) => ({ item: c.item, done: false, photoUrls: [] })),
         materials,
@@ -86,6 +118,17 @@ export class OrdersService {
       }
 
       await order.save(session ? { session } : undefined);
+
+      if (dto.equipmentId) {
+        await this.equipmentHistory.add(tenantId, {
+          equipmentId: dto.equipmentId,
+          orderId: order.id,
+          type: 'order_created',
+          at: scheduledAt,
+          notes: dto.notes,
+          by: userId
+        });
+      }
       return order.toObject();
     });
   }
@@ -115,10 +158,26 @@ export class OrdersService {
     return this.orderModel.find(query).lean();
   }
 
+  async listByEquipment(tenantId: string, equipmentId: string) {
+    return this.orderModel
+      .find({ tenantId, equipmentId, deletedAt: null })
+      .sort({ scheduledAt: -1, createdAt: -1 })
+      .lean();
+  }
+
   async update(tenantId: string, id: string, dto: UpdateOrderDto, userId: string) {
     const order = await this.findById(tenantId, id);
     if (dto.status) order.status = dto.status;
-    if (dto.scheduledAt) order.scheduledAt = dto.scheduledAt as any;
+    if (dto.scheduledAt) {
+      const nextDate = new Date(dto.scheduledAt);
+      if (Number.isNaN(nextDate.getTime())) {
+        throw new BadRequestException({
+          code: 'INVALID_SCHEDULE',
+          message: 'scheduledAt must be a valid ISO 8601 date string'
+        });
+      }
+      order.scheduledAt = nextDate;
+    }
     if (dto.technicianIds) order.technicianIds = dto.technicianIds;
     if (dto.checklist) order.checklist = dto.checklist as any;
     if (dto.billingItems) order.billing = this.computeBilling(dto.billingItems, dto.billingDiscount);
@@ -143,8 +202,20 @@ export class OrdersService {
         if (existing) {
           existing.qty += mat.qty;
           existing.reserved = true;
+          if (mat.itemName) {
+            existing.itemName = mat.itemName;
+          }
+          if (mat.description) {
+            existing.description = mat.description;
+          }
         } else {
-          order.materials.push({ itemId: mat.itemId, qty: mat.qty, reserved: true });
+          order.materials.push({
+            itemId: mat.itemId,
+            qty: mat.qty,
+            itemName: mat.itemName,
+            description: mat.description,
+            reserved: true
+          });
         }
       }
       order.audit.updatedBy = userId;
@@ -193,6 +264,64 @@ export class OrdersService {
         throw new BadRequestException({ code: 'ORDER_ALREADY_FINISHED', message: 'Order already finished' });
       }
 
+      if (order.checklist && order.checklist.length) {
+        const pending = order.checklist.filter((item) => !item.done);
+        if (pending.length) {
+          throw new BadRequestException({
+            code: 'CHECKLIST_INCOMPLETE',
+            message: 'Checklist must be completed before finishing the order',
+            details: pending.map((item) => item.item)
+          });
+        }
+      }
+
+      if (!order.customerSignatureUrl && !dto.signatureBase64) {
+        throw new BadRequestException({
+          code: 'SIGNATURE_REQUIRED',
+          message: 'Customer signature is required to close the order'
+        });
+      }
+
+      if (!dto.payments || !dto.payments.length) {
+        throw new BadRequestException({
+          code: 'PAYMENTS_REQUIRED',
+          message: 'At least one payment is required to close the order'
+        });
+      }
+
+      const tenant = await this.tenantService.findById(tenantId);
+      const payments = dto.payments.map((payment) => {
+        if (payment.amount === undefined || payment.amount < 0) {
+          throw new BadRequestException({
+            code: 'INVALID_PAYMENT_AMOUNT',
+            message: 'Payment amount must be greater than or equal to 0'
+          });
+        }
+        const totals = this.computePaymentTotals(
+          tenant,
+          payment.method,
+          payment.amount,
+          payment.installments
+        );
+        return {
+          method: payment.method,
+          amount: payment.amount,
+          installments: payment.installments,
+          feePercent: totals.feePercent,
+          feeValue: totals.feeValue,
+          netAmount: totals.netAmount
+        };
+      });
+
+      const paymentSum = payments.reduce((sum, payment) => sum + payment.amount, 0);
+      const orderTotal = order.billing?.total ?? 0;
+      if (Math.abs(paymentSum - orderTotal) > 0.01) {
+        throw new BadRequestException({
+          code: 'PAYMENT_MISMATCH',
+          message: 'Sum of payments must match billing total'
+        });
+      }
+
       const materialsToDeduct = order.materials.filter((m) => m.reserved);
       if (materialsToDeduct.length) {
         await this.inventoryService.deductForOrder(
@@ -223,6 +352,13 @@ export class OrdersService {
         const signatureUrl = await this.filesService.saveBase64(dto.signatureBase64, 'png');
         order.customerSignatureUrl = signatureUrl;
       }
+      order.payments = payments as any;
+      order.paymentGrossTotal = paymentSum;
+      order.paymentFeeTotal = payments.reduce((sum, payment) => sum + payment.feeValue, 0);
+      order.paymentNetTotal = payments.reduce((sum, payment) => sum + payment.netAmount, 0);
+      if (order.billing) {
+        order.billing.status = 'paid';
+      }
       order.status = 'done';
       order.finishedAt = new Date();
       order.timesheet.end = new Date();
@@ -234,8 +370,9 @@ export class OrdersService {
       order.audit.updatedBy = userId;
       await order.save(session ? { session } : undefined);
 
+      let financeTx: any = null;
       if (order.billing.total > 0) {
-        await this.financeService.create(
+        financeTx = await this.financeService.create(
           tenantId,
           {
             type: 'receivable',
@@ -249,8 +386,30 @@ export class OrdersService {
           userId,
           session || undefined
         );
+        order.financeTransactionId = financeTx._id?.toString?.() ?? financeTx._id;
+        for (const payment of payments) {
+          await this.financeService.pay(
+            tenantId,
+            order.financeTransactionId,
+            {
+              method: payment.method as any,
+              amount: payment.amount
+            },
+            userId
+          );
+        }
       }
 
+      if (order.equipmentId) {
+        await this.equipmentHistory.add(tenantId, {
+          equipmentId: order.equipmentId,
+          orderId: order.id,
+          type: 'order_finished',
+          at: order.finishedAt,
+          notes: dto.notes,
+          by: userId
+        });
+      }
       return order.toObject();
     });
   }
@@ -277,5 +436,43 @@ export class OrdersService {
   async generatePdf(tenantId: string, id: string, type: 'report' | 'budget' | 'warranty') {
     const order = await this.findById(tenantId, id);
     return this.pdfService.generateOrderPdf(order.toObject(), type);
+  }
+
+  async reschedule(
+    tenantId: string,
+    id: string,
+    dto: RescheduleOrderDto,
+    userId: string
+  ) {
+    const order = await this.findById(tenantId, id);
+    const nextDate = new Date(dto.scheduledAt);
+    if (Number.isNaN(nextDate.getTime())) {
+      throw new BadRequestException({
+        code: 'INVALID_SCHEDULE',
+        message: 'scheduledAt must be a valid ISO 8601 date string'
+      });
+    }
+    order.scheduledAt = nextDate;
+    if (dto.notes !== undefined) {
+      order.notes = dto.notes;
+    }
+    if (order.status !== 'done') {
+      order.status = 'scheduled';
+    }
+    order.audit.updatedBy = userId;
+    await order.save();
+
+    if (order.equipmentId) {
+      await this.equipmentHistory.add(tenantId, {
+        equipmentId: order.equipmentId,
+        orderId: order.id,
+        type: 'order_rescheduled',
+        at: nextDate,
+        notes: dto.notes,
+        by: userId
+      });
+    }
+
+    return order.toObject();
   }
 }

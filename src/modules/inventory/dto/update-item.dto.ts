@@ -11,7 +11,7 @@ export class UpdateInventoryItemDto {
 
   @IsString()
   @IsOptional()
-  unit?: 'un' | 'lt' | 'kg';
+  unit?: string;
 
   @IsNumber()
   @IsOptional()

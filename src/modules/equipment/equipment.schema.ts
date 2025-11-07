@@ -31,6 +31,9 @@ export class Equipment {
   serial?: string;
 
   @Prop()
+  room: string;
+
+  @Prop()
   notes?: string;
 
   @Prop()
@@ -41,6 +44,12 @@ export class Equipment {
 
   @Prop()
   updatedBy?: string;
+
+  @Prop()
+  replacedBy?: string;
+
+  @Prop()
+  replacedAt?: Date;
 
   @Prop({ default: null })
   deletedAt?: Date | null;

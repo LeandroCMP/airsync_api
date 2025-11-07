@@ -5,6 +5,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { UsersModule } from '../../modules/users/users.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Session, SessionSchema } from './session.schema';
+import { AuthLoginLog, AuthLoginLogSchema } from './auth-login-log.schema';
+import { AuthLogService } from './auth-log.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { TenancyModule } from '../tenancy/tenancy.module';
 
@@ -13,9 +15,12 @@ import { TenancyModule } from '../tenancy/tenancy.module';
     JwtModule.register({}),
     UsersModule,
     TenancyModule,
-    MongooseModule.forFeature([{ name: Session.name, schema: SessionSchema }])
+    MongooseModule.forFeature([
+      { name: Session.name, schema: SessionSchema },
+      { name: AuthLoginLog.name, schema: AuthLoginLogSchema }
+    ])
   ],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, AuthLogService],
   controllers: [AuthController],
   exports: [AuthService]
 })

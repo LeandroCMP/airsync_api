@@ -20,9 +20,12 @@ export class TenantGuard implements CanActivate {
       return true;
     }
     const request = context.switchToHttp().getRequest();
-    const tenantId = request.headers['x-tenant-id'] as string;
+    let tenantId = request.headers['x-tenant-id'] as string;
+    if (!tenantId && request.user && request.user.tenantId) {
+      tenantId = request.user.tenantId;
+    }
     if (!tenantId) {
-      throw new ForbiddenException({ code: 'TENANT_REQUIRED', message: 'X-Tenant-Id header required' });
+      throw new ForbiddenException({ code: 'TENANT_REQUIRED', message: 'Tenant not resolved' });
     }
     request.tenantId = tenantId;
     return true;

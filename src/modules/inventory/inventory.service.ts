@@ -5,6 +5,18 @@ import { InventoryItem, InventoryItemDocument } from './inventory-item.schema';
 import { CreateInventoryItemDto } from './dto/create-item.dto';
 import { UpdateInventoryItemDto } from './dto/update-item.dto';
 import { CreateInventoryMovementDto } from './dto/create-movement.dto';
+import { SearchInventoryItemsDto, StockStatusFilter } from './dto/search-items.dto';
+
+export type StockSeverity = 'critical' | 'below_minimum' | 'adequate';
+
+export interface DecoratedInventoryItem {
+  minimumQuantity: number;
+  criticalThreshold: number;
+  isBelowMinimum: boolean;
+  isCriticalStock: boolean;
+  stockSeverity: StockSeverity;
+  [key: string]: any;
+}
 
 @Injectable()
 export class InventoryService {
@@ -34,7 +46,9 @@ export class InventoryService {
 
   async updateItem(tenantId: string, id: string, dto: UpdateInventoryItemDto, userId: string) {
     const item = await this.inventoryModel.findOne({ tenantId, _id: id, deletedAt: null });
-    if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Inventory item not found' });
+    if (!item) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Inventory item not found' });
+    }
     if (dto.name !== undefined) item.name = dto.name;
     if (dto.barcode !== undefined) item.barcode = dto.barcode;
     if (dto.unit !== undefined) item.unit = dto.unit;
@@ -48,13 +62,51 @@ export class InventoryService {
     return item.toObject();
   }
 
-  async search(tenantId: string, text?: string) {
+  async search(tenantId: string, filters: SearchInventoryItemsDto) {
     const query: any = { tenantId, deletedAt: null };
-    if (text) {
-      const regex = new RegExp(text, 'i');
+
+    if (filters?.itemId) {
+      query._id = filters.itemId;
+    }
+    if (filters?.sku) {
+      query.sku = filters.sku;
+    }
+    if (filters?.text) {
+      const regex = new RegExp(filters.text, 'i');
       query.$or = [{ name: regex }, { sku: regex }, { barcode: regex }];
     }
-    return this.inventoryModel.find(query).lean();
+
+    const stockStatus = filters?.stockStatus ?? StockStatusFilter.ALL;
+
+    const items = await this.inventoryModel.find(query).lean();
+    const decorated = items.map((item) => this.decorateListItem(item));
+
+    const filtered = decorated.filter((item) => {
+      if (stockStatus === StockStatusFilter.CRITICAL) {
+        return item.isCriticalStock;
+      }
+      if (stockStatus === StockStatusFilter.BELOW_MINIMUM) {
+        return item.isBelowMinimum;
+      }
+      return true;
+    });
+
+    const severityOrder: Record<StockSeverity, number> = {
+      critical: 0,
+      below_minimum: 1,
+      adequate: 2
+    };
+
+    return filtered.sort((a, b) => {
+      const severityDiff = severityOrder[a.stockSeverity] - severityOrder[b.stockSeverity];
+      if (severityDiff !== 0) {
+        return severityDiff;
+      }
+      if (a.name && b.name) {
+        return String(a.name).localeCompare(String(b.name));
+      }
+      return 0;
+    });
   }
 
   async findById(tenantId: string, id: string, session?: ClientSession | null) {
@@ -82,7 +134,7 @@ export class InventoryService {
     const available = item.onHand - item.reserved;
 
     switch (dto.type) {
-      case 'in':
+      case 'in': {
         const previousQty = item.onHand;
         const previousCost = (item.avgCost || 0) * previousQty;
         item.onHand += dto.qty;
@@ -92,7 +144,8 @@ export class InventoryService {
           item.avgCost = totalQty > 0 ? totalCost / totalQty : item.avgCost;
         }
         break;
-      case 'out':
+      }
+      case 'out': {
         if (item.onHand < dto.qty) {
           throw new BadRequestException({ code: 'STOCK_ERROR', message: 'Insufficient stock' });
         }
@@ -105,7 +158,8 @@ export class InventoryService {
           }
         }
         break;
-      case 'reserve':
+      }
+      case 'reserve': {
         if (available < dto.qty) {
           throw new BadRequestException({ code: 'STOCK_RESERVE_ERROR', message: 'Not enough stock to reserve' });
         }
@@ -115,14 +169,21 @@ export class InventoryService {
             (entry) => entry.ref === dto.ref && (entry.type === 'release' || entry.type === 'out')
           );
           if (existingReserve && !released) {
-            throw new BadRequestException({ code: 'DUPLICATE_RESERVE', message: 'Material already reserved for this reference' });
+            throw new BadRequestException({
+              code: 'DUPLICATE_RESERVE',
+              message: 'Material already reserved for this reference'
+            });
           }
         }
         item.reserved += dto.qty;
         break;
-      case 'release':
+      }
+      case 'release': {
         item.reserved = Math.max(0, item.reserved - dto.qty);
         break;
+      }
+      default:
+        throw new BadRequestException({ code: 'UNSUPPORTED_MOVEMENT', message: 'Unsupported movement type' });
     }
 
     item.entries.push({
@@ -194,5 +255,52 @@ export class InventoryService {
     return this.inventoryModel
       .find({ tenantId, deletedAt: null, $expr: { $lte: ['$onHand', '$minQty'] } })
       .lean();
+  }
+
+  async removeItem(tenantId: string, id: string, userId: string) {
+    const item = await this.inventoryModel.findOne({ tenantId, _id: id, deletedAt: null });
+    if (!item) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Inventory item not found' });
+    }
+    if (item.onHand && item.onHand > 0) {
+      throw new BadRequestException({
+        code: 'CANNOT_DELETE_WITH_STOCK',
+        message: 'Nao e possivel excluir: item possui saldo em estoque. Zere a quantidade antes de remover.'
+      });
+    }
+    if (item.reserved && item.reserved > 0) {
+      throw new BadRequestException({
+        code: 'CANNOT_DELETE_WITH_RESERVED',
+        message: 'Nao e possivel excluir: item possui reserva pendente. Libere as reservas antes de remover.'
+      });
+    }
+    item.deletedAt = new Date();
+    item.updatedBy = userId;
+    await item.save();
+    return item.toObject();
+  }
+
+  private decorateListItem(item: any): DecoratedInventoryItem {
+    const minQty = typeof item.minQty === 'number' ? item.minQty : 0;
+    const onHand = typeof item.onHand === 'number' ? item.onHand : 0;
+
+    const belowMinimum = minQty > 0 ? onHand <= minQty : false;
+    const criticalThresholdValue = minQty > 0 ? Number((minQty * 0.3).toFixed(3)) : 0;
+    const critical = minQty > 0 ? onHand <= criticalThresholdValue : false;
+
+    const stockSeverity: StockSeverity = critical
+      ? 'critical'
+      : belowMinimum
+      ? 'below_minimum'
+      : 'adequate';
+
+    return {
+      ...item,
+      minimumQuantity: minQty,
+      criticalThreshold: criticalThresholdValue,
+      isBelowMinimum: belowMinimum,
+      isCriticalStock: critical,
+      stockSeverity
+    };
   }
 }

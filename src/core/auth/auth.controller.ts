@@ -22,12 +22,11 @@ export class AuthController {
   @Public()
   @HttpCode(200)
   async login(
-    @Headers('x-tenant-id') tenantId: string,
     @Body() dto: LoginDto,
     @Headers('user-agent') ua?: string,
     @Headers('x-forwarded-for') ip?: string
   ) {
-    return this.authService.login(tenantId, dto, ip, ua);
+    return this.authService.login(undefined, dto, ip, ua);
   }
 
   @Post('refresh')

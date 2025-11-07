@@ -41,7 +41,7 @@ export class InventoryItem {
   barcode?: string;
 
   @Prop({ default: 'un' })
-  unit: 'un' | 'lt' | 'kg';
+  unit: string;
 
   @Prop({ default: 0 })
   minQty: number;

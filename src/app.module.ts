@@ -57,7 +57,7 @@ import { AuditModule } from './core/audit/audit.module';
     CrmModule,
     ReportsModule,
     SyncModule,
-    SeedModule
+    ...(process.env.NODE_ENV === 'test' ? [] : [SeedModule])
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

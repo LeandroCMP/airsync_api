@@ -1,10 +1,19 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
 
+export type FinancePaymentMethod =
+  | 'PIX'
+  | 'CASH'
+  | 'CARD'
+  | 'CARD_CREDIT'
+  | 'CARD_DEBIT'
+  | 'BANK_TRANSFER'
+  | 'CHEQUE';
+
 @Schema()
 export class FinancePayment {
-  @Prop({ required: true })
-  method: 'PIX' | 'CASH' | 'CARD';
+  @Prop({ required: true, enum: ['PIX', 'CASH', 'CARD', 'CARD_CREDIT', 'CARD_DEBIT', 'BANK_TRANSFER', 'CHEQUE'] })
+  method: FinancePaymentMethod;
 
   @Prop({ required: true })
   amount: number;

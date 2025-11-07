@@ -26,6 +26,12 @@ export class OrderMaterial {
   @Prop({ required: true })
   qty: number;
 
+  @Prop()
+  itemName?: string;
+
+  @Prop()
+  description?: string;
+
   @Prop({ default: false })
   reserved: boolean;
 
@@ -71,6 +77,31 @@ export class OrderBilling {
 }
 
 const OrderBillingSchema = SchemaFactory.createForClass(OrderBilling);
+
+export type OrderPaymentMethod = 'PIX' | 'CASH' | 'CARD_CREDIT' | 'CARD_DEBIT' | 'CHEQUE';
+
+@Schema()
+export class OrderPayment {
+  @Prop({ required: true, enum: ['PIX', 'CASH', 'CARD_CREDIT', 'CARD_DEBIT', 'CHEQUE'] })
+  method: OrderPaymentMethod;
+
+  @Prop({ required: true })
+  amount: number;
+
+  @Prop()
+  installments?: number;
+
+  @Prop({ default: 0 })
+  feePercent: number;
+
+  @Prop({ default: 0 })
+  feeValue: number;
+
+  @Prop({ default: 0 })
+  netAmount: number;
+}
+
+const OrderPaymentSchema = SchemaFactory.createForClass(OrderPayment);
 
 @Schema({ timestamps: true })
 export class Order {
@@ -125,6 +156,21 @@ export class Order {
 
   @Prop({ type: OrderBillingSchema, default: {} })
   billing: OrderBilling;
+
+  @Prop({ type: [OrderPaymentSchema], default: [] })
+  payments: OrderPayment[];
+
+  @Prop({ default: 0 })
+  paymentGrossTotal?: number;
+
+  @Prop({ default: 0 })
+  paymentFeeTotal?: number;
+
+  @Prop({ default: 0 })
+  paymentNetTotal?: number;
+
+  @Prop()
+  financeTransactionId?: string;
 
   @Prop({ type: Object, default: {} })
   audit: {

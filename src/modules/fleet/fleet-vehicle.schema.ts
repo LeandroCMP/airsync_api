@@ -32,6 +32,9 @@ export class FuelLog {
   @Prop({ required: true })
   liters: number;
 
+  @Prop({ required: true, enum: ['gasoline', 'ethanol', 'diesel', 'gnv', 'electric'] })
+  fuelType: string;
+
   @Prop({ required: true })
   cost: number;
 }
@@ -89,8 +92,17 @@ export class FleetVehicle {
 
   @Prop()
   costCenter?: string;
+
+  @Prop()
+  updatedBy?: string;
+
+  @Prop({ default: null })
+  deletedAt?: Date | null;
 }
 
 export type FleetVehicleDocument = FleetVehicle & Document;
 export const FleetVehicleSchema = SchemaFactory.createForClass(FleetVehicle);
-FleetVehicleSchema.index({ tenantId: 1, plate: 1 }, { unique: true });
+FleetVehicleSchema.index(
+  { tenantId: 1, plate: 1 },
+  { unique: true, partialFilterExpression: { deletedAt: null } }
+);

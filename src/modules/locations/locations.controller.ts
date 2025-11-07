@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { LocationsService } from './locations.service';
 import { CreateLocationDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
@@ -6,10 +6,14 @@ import { TenantId } from '../../common/decorators/tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { withAudit } from '../../common/utils/audit.util';
+import { EquipmentService } from '../equipment/equipment.service';
 
 @Controller('locations')
 export class LocationsController {
-  constructor(private readonly locationsService: LocationsService) {}
+  constructor(
+    private readonly locationsService: LocationsService,
+    private readonly equipmentService: EquipmentService
+  ) {}
 
   @Post()
   @Permissions('clients.write')
@@ -51,6 +55,30 @@ export class LocationsController {
       action: 'update',
       before: before.toObject(),
       after: updated,
+      by: user.id
+    });
+  }
+
+  @Delete(':id')
+  @Permissions('clients.write')
+  async remove(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Query('cascadeEquipments') cascadeEquipments?: string
+  ) {
+    const before = await this.locationsService.findById(tenantId, id);
+    const removed = await this.locationsService.remove(tenantId, id, user.id);
+    if (cascadeEquipments === 'true') {
+      await this.equipmentService.removeByLocation(tenantId, id, user.id);
+    }
+    return withAudit({ success: true }, {
+      tenantId,
+      entity: 'locations',
+      entityId: id,
+      action: 'delete',
+      before: before.toObject(),
+      after: removed,
       by: user.id
     });
   }

@@ -1,7 +1,7 @@
-import { IsDateString, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsDate, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class VehicleCheckDto {
-  @IsDateString()
+  @IsDate()
   at: Date;
 
   @IsNumber()

@@ -12,6 +12,7 @@ import {
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
+import { RescheduleOrderDto } from './dto/reschedule-order.dto';
 import { OrderMaterialsDto } from './dto/order-materials.dto';
 import { FinishOrderDto } from './dto/finish-order.dto';
 import { TenantId } from '../../common/decorators/tenant.decorator';
@@ -72,6 +73,27 @@ export class OrdersController {
   ) {
     const before = await this.ordersService.findById(tenantId, id);
     const updated = await this.ordersService.update(tenantId, id, dto, user.id);
+    return withAudit(updated, {
+      tenantId,
+      entity: 'orders',
+      entityId: id,
+      action: 'update',
+      before: before.toObject(),
+      after: updated,
+      by: user.id
+    });
+  }
+
+  @Post(':id/reschedule')
+  @Permissions('orders.write')
+  async reschedule(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: RescheduleOrderDto
+  ) {
+    const before = await this.ordersService.findById(tenantId, id);
+    const updated = await this.ordersService.reschedule(tenantId, id, dto, user.id);
     return withAudit(updated, {
       tenantId,
       entity: 'orders',

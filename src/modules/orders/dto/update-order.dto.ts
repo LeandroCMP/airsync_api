@@ -1,5 +1,13 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsDateString, IsEnum, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  ValidateNested
+} from 'class-validator';
 
 class ChecklistItemDto {
   @IsString()
@@ -22,9 +30,11 @@ class BillingItemDto {
   @IsString()
   name: string;
 
+  @IsNumber()
   @Type(() => Number)
   qty: number;
 
+  @IsNumber()
   @Type(() => Number)
   unitPrice: number;
 }
@@ -36,7 +46,7 @@ export class UpdateOrderDto {
 
   @IsDateString()
   @IsOptional()
-  scheduledAt?: Date;
+  scheduledAt?: string;
 
   @IsArray()
   @IsOptional()

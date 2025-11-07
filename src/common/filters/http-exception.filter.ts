@@ -18,7 +18,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request & { requestId?: string }>();
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
-    let message = 'Internal server error';
+    let message = 'Erro interno do servidor';
     let code = 'INTERNAL_ERROR';
     let details: any[] | undefined;
 
@@ -26,14 +26,28 @@ export class HttpExceptionFilter implements ExceptionFilter {
       status = exception.getStatus();
       const res: any = exception.getResponse();
       if (typeof res === 'string') {
-        message = res;
+        // Use Portuguese fallback for default string responses
+        message = this.mapStatusToPtMessage(status);
       } else {
-        message = res.message || message;
-        code = res.code || this.mapStatusToCode(status);
-        details = res.details;
+        const responseCode = res.code || this.mapStatusToCode(status);
+        let responseMessage: string | undefined;
+        let responseDetails: any[] | undefined;
+
+        if (typeof res.message === 'string') {
+          responseMessage = res.message;
+        } else if (Array.isArray(res.message) && res.message.length > 0) {
+          responseMessage = res.message.join(' | ');
+          responseDetails = res.details ?? res.message;
+        } else if (res.error && typeof res.error === 'string') {
+          responseMessage = res.error;
+        }
+
+        message = responseMessage || this.mapStatusToPtMessage(status);
+        code = responseCode;
+        details = responseDetails ?? res.details;
       }
     } else if (exception instanceof Error) {
-      message = exception.message;
+      message = exception.message || message;
       code = 'UNHANDLED_ERROR';
     }
 
@@ -61,8 +75,27 @@ export class HttpExceptionFilter implements ExceptionFilter {
         return 'FORBIDDEN';
       case HttpStatus.NOT_FOUND:
         return 'NOT_FOUND';
+      case HttpStatus.CONFLICT:
+        return 'CONFLICT';
       default:
         return 'HTTP_ERROR';
+    }
+  }
+
+  private mapStatusToPtMessage(status: number) {
+    switch (status) {
+      case HttpStatus.BAD_REQUEST:
+        return 'Erro de validação';
+      case HttpStatus.UNAUTHORIZED:
+        return 'Não autorizado';
+      case HttpStatus.FORBIDDEN:
+        return 'Acesso negado';
+      case HttpStatus.NOT_FOUND:
+        return 'Não encontrado';
+      case HttpStatus.CONFLICT:
+        return 'Conflito';
+      default:
+        return 'Erro';
     }
   }
 }

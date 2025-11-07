@@ -3,6 +3,26 @@ import { Document } from 'mongoose';
 
 export type UserRole = 'admin' | 'manager' | 'tech' | 'viewer';
 
+@Schema()
+export class UserCompensation {
+  @Prop()
+  salary?: number;
+
+  @Prop()
+  paymentDay?: number;
+
+  @Prop({ enum: ['monthly', 'biweekly', 'weekly'] })
+  paymentFrequency?: 'monthly' | 'biweekly' | 'weekly';
+
+  @Prop({ enum: ['PIX', 'CASH', 'CARD', 'BANK_TRANSFER'] })
+  paymentMethod?: 'PIX' | 'CASH' | 'CARD' | 'BANK_TRANSFER';
+
+  @Prop()
+  notes?: string;
+}
+
+const UserCompensationSchema = SchemaFactory.createForClass(UserCompensation);
+
 @Schema({ timestamps: true })
 export class User {
   @Prop({ required: true, index: true })
@@ -26,6 +46,9 @@ export class User {
   @Prop()
   hourlyCost?: number;
 
+  @Prop({ type: UserCompensationSchema, default: {} })
+  compensation?: UserCompensation;
+
   @Prop({ default: true })
   active: boolean;
 
@@ -41,3 +64,5 @@ export type UserDocument = User & Document;
 export const UserSchema = SchemaFactory.createForClass(User);
 
 UserSchema.index({ tenantId: 1, email: 1 }, { unique: true, partialFilterExpression: { deletedAt: null } });
+// Enforce global unique emails across tenants (active users only)
+UserSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { deletedAt: null } });

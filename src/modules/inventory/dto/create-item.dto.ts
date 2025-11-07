@@ -15,7 +15,7 @@ export class CreateInventoryItemDto {
 
   @IsString()
   @IsOptional()
-  unit?: 'un' | 'lt' | 'kg';
+  unit?: string;
 
   @IsNumber()
   @IsOptional()

@@ -4,6 +4,7 @@ import {
   IsDateString,
   IsEnum,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   ValidateNested
@@ -20,8 +21,17 @@ class MaterialDto {
   @IsNotEmpty()
   itemId: string;
 
+  @IsNumber()
   @Type(() => Number)
   qty: number;
+
+  @IsString()
+  @IsOptional()
+  itemName?: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
 }
 
 class BillingItemDto {
@@ -31,9 +41,11 @@ class BillingItemDto {
   @IsString()
   name: string;
 
+  @IsNumber()
   @Type(() => Number)
   qty: number;
 
+  @IsNumber()
   @Type(() => Number)
   unitPrice: number;
 }
@@ -52,11 +64,12 @@ export class CreateOrderDto {
   equipmentId?: string;
 
   @IsEnum(['scheduled', 'in_progress', 'done', 'canceled'])
-  status: 'scheduled' | 'in_progress' | 'done' | 'canceled';
+  @IsOptional()
+  status?: 'scheduled' | 'in_progress' | 'done' | 'canceled';
 
   @IsDateString()
   @IsOptional()
-  scheduledAt?: Date;
+  scheduledAt?: string;
 
   @IsArray()
   @IsOptional()
@@ -88,3 +101,4 @@ export class CreateOrderDto {
   @IsOptional()
   notes?: string;
 }
+
