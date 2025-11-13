@@ -1,5 +1,14 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsEnum,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  ValidateNested
+} from 'class-validator';
 
 class PurchaseItemDto {
   @IsString()
@@ -11,6 +20,14 @@ class PurchaseItemDto {
 
   @IsNumber()
   unitCost: number;
+
+  @IsString()
+  @IsOptional()
+  orderId?: string;
+
+  @IsString()
+  @IsOptional()
+  costCenterId?: string;
 }
 
 export class CreatePurchaseDto {
@@ -18,8 +35,8 @@ export class CreatePurchaseDto {
   @IsNotEmpty()
   supplierId: string;
 
-  @IsEnum(['draft', 'ordered', 'received', 'canceled'])
-  status: 'draft' | 'ordered' | 'received' | 'canceled';
+  @IsEnum(['draft', 'pending', 'approved', 'ordered', 'received', 'canceled'])
+  status: 'draft' | 'pending' | 'approved' | 'ordered' | 'received' | 'canceled';
 
   @ValidateNested({ each: true })
   @Type(() => PurchaseItemDto)
@@ -29,6 +46,10 @@ export class CreatePurchaseDto {
   @IsOptional()
   @IsNumber()
   freight?: number;
+
+  @IsOptional()
+  @IsDateString()
+  paymentDueDate?: Date;
 
   @IsOptional()
   @IsNumber()

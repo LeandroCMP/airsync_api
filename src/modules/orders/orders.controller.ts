@@ -15,6 +15,7 @@ import { UpdateOrderDto } from './dto/update-order.dto';
 import { RescheduleOrderDto } from './dto/reschedule-order.dto';
 import { OrderMaterialsDto } from './dto/order-materials.dto';
 import { FinishOrderDto } from './dto/finish-order.dto';
+import { CreateOrderPurchaseDto } from './dto/create-order-purchase.dto';
 import { TenantId } from '../../common/decorators/tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -48,18 +49,34 @@ export class OrdersController {
   @Permissions('orders.read')
   async list(
     @TenantId() tenantId: string,
+    @CurrentUser() user: any,
     @Query('status') status?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('tech') tech?: string
   ) {
-    return this.ordersService.list(tenantId, { status, from, to, tech });
+    return this.ordersService.list(tenantId, { status, from, to, tech }, user);
+  }
+
+  @Get(':id/costs')
+  @Permissions('orders.read')
+  async costs(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Param('id') id: string
+  ) {
+    return this.ordersService.getCostSummary(tenantId, id, user);
   }
 
   @Get(':id')
   @Permissions('orders.read')
-  async findOne(@TenantId() tenantId: string, @Param('id') id: string) {
+  async findOne(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Param('id') id: string
+  ) {
     const order = await this.ordersService.findById(tenantId, id);
+    this.ordersService.ensureCanView(order, user);
     return order.toObject();
   }
 
@@ -180,6 +197,25 @@ export class OrdersController {
       entityId: id,
       action: 'update',
       after: order,
+      by: user.id
+    });
+  }
+
+  @Post(':id/purchases')
+  @Permissions('orders.write')
+  async createPurchase(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: CreateOrderPurchaseDto
+  ) {
+    const purchase = await this.ordersService.createPurchaseFromOrder(tenantId, id, dto, user.id);
+    return withAudit(purchase, {
+      tenantId,
+      entity: 'purchases',
+      entityId: purchase._id,
+      action: 'create',
+      after: purchase,
       by: user.id
     });
   }

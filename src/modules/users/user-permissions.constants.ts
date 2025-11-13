@@ -138,9 +138,10 @@ export const USER_PERMISSION_CATALOG: PermissionDefinition[] = [
 
 export const ALL_PERMISSION_CODES: UserPermissionCode[] = USER_PERMISSION_CATALOG.map((item) => item.code);
 
-type RoleKey = 'admin' | 'manager' | 'tech' | 'viewer';
+type RoleKey = 'owner' | 'admin' | 'manager' | 'tech' | 'viewer';
 
 export const ROLE_PERMISSION_PRESETS: Record<RoleKey, UserPermissionCode[]> = {
+  owner: [...ALL_PERMISSION_CODES],
   admin: [...ALL_PERMISSION_CODES],
   manager: [
     'clients.write',

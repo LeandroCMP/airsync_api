@@ -1,17 +1,31 @@
-import { Injectable, UnauthorizedException, ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+  ForbiddenException,
+  BadRequestException,
+  NotFoundException
+} from '@nestjs/common';
 import { UsersService } from '../../modules/users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { SubscriptionsService } from '../../modules/subscriptions/subscriptions.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { InjectModel } from '@nestjs/mongoose';
 import { Session, SessionDocument } from './session.schema';
 import { Model } from 'mongoose';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import { TenantService } from '../tenancy/tenant.service';
 import { AuthLogService } from './auth-log.service';
+import { PasswordResetToken, PasswordResetTokenDocument } from './password-reset-token.schema';
+import { SubscriptionsService } from '../../modules/subscriptions/subscriptions.service';
 
 @Injectable()
 export class AuthService {
@@ -21,7 +35,10 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly tenantService: TenantService,
     private readonly authLog: AuthLogService,
-    @InjectModel(Session.name) private readonly sessionModel: Model<SessionDocument>
+    private readonly subscriptionsService: SubscriptionsService,
+    @InjectModel(Session.name) private readonly sessionModel: Model<SessionDocument>,
+    @InjectModel(PasswordResetToken.name)
+    private readonly resetTokenModel: Model<PasswordResetTokenDocument>
   ) {}
 
   private async generateTokens(payload: any, session: SessionDocument) {
@@ -39,6 +56,10 @@ export class AuthService {
     return { accessToken, refreshToken, jti: session.jti };
   }
 
+  private hashToken(token: string) {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
   async register(dto: RegisterDto) {
     // Ensure email is unique globally before creating tenant to avoid orphan tenants
     const existing = await this.usersService.findByEmailAnyTenant(dto.email);
@@ -52,8 +73,7 @@ export class AuthService {
         name: dto.name,
         email: dto.email,
         password: dto.password,
-        role: 'admin',
-        permissions: ['*']
+        role: 'owner'
       } as any,
       'system'
     );
@@ -64,6 +84,7 @@ export class AuthService {
       jti: randomUUID(),
       expiresAt: new Date(Date.now() + this.parseExpires(this.configService.get<string>('jwt.refreshExpiresIn')))
     });
+    await this.subscriptionsService.ensureSubscription(tenant._id.toString());
 
     const payload = {
       sub: admin._id.toString(),
@@ -122,6 +143,7 @@ export class AuthService {
       });
       throw new UnauthorizedException({ code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' });
     }
+    await this.subscriptionsService.assertTenantCanLogin(tenantId);
     const session = await this.sessionModel.create({
       tenantId,
       userId: userDoc._id.toString(),
@@ -178,6 +200,7 @@ export class AuthService {
       if (!user) {
         throw new UnauthorizedException({ code: 'INVALID_REFRESH', message: 'User not found' });
       }
+      await this.subscriptionsService.assertTenantCanLogin(decoded.tenantId);
       const payload = {
         sub: decoded.sub,
         tenantId: decoded.tenantId,
@@ -192,6 +215,68 @@ export class AuthService {
 
   async logout(tenantId: string, userId: string, jti: string) {
     await this.sessionModel.updateOne({ tenantId, userId, jti }, { revoked: true });
+    return { success: true };
+  }
+
+  async updateProfile(tenantId: string, userId: string, dto: UpdateProfileDto) {
+    const beforeDoc = await this.usersService.findById(tenantId, userId);
+    if (!beforeDoc) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
+    }
+    const before = this.usersService.sanitize(beforeDoc);
+    const after = await this.usersService.updateSelf(tenantId, userId, dto);
+    return { before, after };
+  }
+
+  async changePassword(tenantId: string, userId: string, dto: ChangePasswordDto) {
+    await this.usersService.changePassword(tenantId, userId, dto.currentPassword, dto.newPassword);
+    await this.sessionModel.updateMany({ tenantId, userId }, { revoked: true });
+    return { success: true };
+  }
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const user = await this.usersService.findByEmailAnyTenant(dto.email);
+    if (!user) {
+      return { success: true };
+    }
+    await this.resetTokenModel.updateMany(
+      { userId: user._id.toString(), used: false },
+      { used: true, usedAt: new Date() }
+    );
+    const token = randomUUID().replace(/-/g, '');
+    const tokenHash = this.hashToken(token);
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 30); // 30 min
+    await this.resetTokenModel.create({
+      tenantId: user.tenantId,
+      userId: user._id.toString(),
+      email: user.email,
+      tokenHash,
+      expiresAt
+    });
+    const response: Record<string, any> = { success: true };
+    if ((this.configService.get<string>('app.env') || 'development') !== 'production') {
+      response.resetToken = token;
+    }
+    return response;
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const tokenHash = this.hashToken(dto.token);
+    const record = await this.resetTokenModel.findOne({ tokenHash });
+    if (!record || record.used) {
+      throw new BadRequestException({
+        code: 'INVALID_TOKEN',
+        message: 'Token inválido'
+      });
+    }
+    if (record.expiresAt < new Date()) {
+      throw new BadRequestException({ code: 'TOKEN_EXPIRED', message: 'Token expirado' });
+    }
+    await this.usersService.forcePasswordChange(record.tenantId, record.userId, dto.newPassword, 'system');
+    record.used = true;
+    record.usedAt = new Date();
+    await record.save();
+    await this.sessionModel.updateMany({ tenantId: record.tenantId, userId: record.userId }, { revoked: true });
     return { success: true };
   }
 

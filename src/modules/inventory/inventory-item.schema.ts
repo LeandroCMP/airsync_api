@@ -26,6 +26,20 @@ export class InventoryEntry {
 
 const InventoryEntrySchema = SchemaFactory.createForClass(InventoryEntry);
 
+@Schema()
+export class InventoryCostEntry {
+  @Prop({ required: true })
+  cost: number;
+
+  @Prop({ default: Date.now })
+  at: Date;
+
+  @Prop()
+  source?: string;
+}
+
+const InventoryCostEntrySchema = SchemaFactory.createForClass(InventoryCostEntry);
+
 @Schema({ timestamps: true })
 export class InventoryItem {
   @Prop({ required: true })
@@ -53,10 +67,25 @@ export class InventoryItem {
   supplierId?: string;
 
   @Prop()
+  categoryId?: string;
+
+  @Prop()
   avgCost?: number;
 
   @Prop()
   sellPrice?: number;
+
+  @Prop({ default: 0 })
+  markupPercent?: number;
+
+  @Prop({ enum: ['manual', 'category'], default: 'manual' })
+  pricingMode: 'manual' | 'category';
+
+  @Prop()
+  lastPurchaseCost?: number;
+
+  @Prop({ type: [InventoryCostEntrySchema], default: [] })
+  costHistory: InventoryCostEntry[];
 
   @Prop({ type: [InventoryEntrySchema], default: [] })
   entries: InventoryEntry[];
@@ -78,3 +107,4 @@ export type InventoryItemDocument = InventoryItem & Document;
 export const InventoryItemSchema = SchemaFactory.createForClass(InventoryItem);
 InventoryItemSchema.index({ tenantId: 1, sku: 1 }, { unique: true, partialFilterExpression: { deletedAt: null } });
 InventoryItemSchema.index({ tenantId: 1, barcode: 1 });
+InventoryItemSchema.index({ tenantId: 1, categoryId: 1 });

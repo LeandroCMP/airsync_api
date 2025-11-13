@@ -25,6 +25,11 @@ class MaterialDto {
   @Type(() => Number)
   qty: number;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  unitCost?: number;
+
   @IsString()
   @IsOptional()
   itemName?: string;
@@ -62,6 +67,14 @@ export class CreateOrderDto {
   @IsString()
   @IsOptional()
   equipmentId?: string;
+
+  @IsString()
+  @IsOptional()
+  costCenterId?: string;
+
+  @IsString()
+  @IsOptional()
+  saleId?: string;
 
   @IsEnum(['scheduled', 'in_progress', 'done', 'canceled'])
   @IsOptional()

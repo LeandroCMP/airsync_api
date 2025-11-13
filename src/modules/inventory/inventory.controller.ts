@@ -44,6 +44,18 @@ export class InventoryController {
     return this.inventoryService.search(tenantId, query);
   }
 
+  @Get('rebalance')
+  @Permissions('inventory.read')
+  async rebalance(@TenantId() tenantId: string, @Query('days') days?: string) {
+    return this.inventoryService.rebalance(tenantId, Number(days));
+  }
+
+  @Get('items/:id/cost-history')
+  @Permissions('inventory.read')
+  async costHistory(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.inventoryService.getCostHistory(tenantId, id);
+  }
+
   @Patch('items/:id')
   @Permissions('inventory.write')
   @ApiOperation({ summary: 'Atualizar item de estoque' })

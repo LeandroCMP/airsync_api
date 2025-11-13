@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
 
-export type UserRole = 'admin' | 'manager' | 'tech' | 'viewer';
+export type UserRole = 'owner' | 'admin' | 'manager' | 'tech' | 'viewer';
 
 @Schema()
 export class UserCompensation {
@@ -37,7 +37,7 @@ export class User {
   @Prop({ required: true })
   passwordHash: string;
 
-  @Prop({ required: true, enum: ['admin', 'manager', 'tech', 'viewer'], default: 'viewer' })
+  @Prop({ required: true, enum: ['owner', 'admin', 'manager', 'tech', 'viewer'], default: 'viewer' })
   role: UserRole;
 
   @Prop({ type: [String], default: [] })

@@ -71,4 +71,12 @@ export class UpdateOrderDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  @IsString()
+  @IsOptional()
+  costCenterId?: string;
+
+  @IsString()
+  @IsOptional()
+  saleId?: string;
 }

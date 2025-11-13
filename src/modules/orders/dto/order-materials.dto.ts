@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 class OrderMaterialDto {
   @IsString()
@@ -8,6 +8,11 @@ class OrderMaterialDto {
 
   @Type(() => Number)
   qty: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  unitCost?: number;
 
   @IsString()
   @IsOptional()

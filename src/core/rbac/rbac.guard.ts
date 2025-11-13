@@ -36,7 +36,7 @@ export class RbacGuard implements CanActivate {
       throw new ForbiddenException({ code: 'FORBIDDEN', message: 'No user context' });
     }
 
-    if (user.role === 'admin') {
+    if (user.role === 'owner' || user.role === 'admin') {
       return true;
     }
 

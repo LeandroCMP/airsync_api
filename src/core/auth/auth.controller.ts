@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Post, Patch } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { Public } from '../../common/decorators/public.decorator';
@@ -7,6 +7,10 @@ import { RefreshDto } from './dto/refresh.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { TenantId } from '../../common/decorators/tenant.decorator';
 import { withAudit } from '../../common/utils/audit.util';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -58,5 +62,45 @@ export class AuthController {
   @Get('me')
   async me(@CurrentUser() user: any) {
     return user;
+  }
+
+  @Patch('me')
+  async updateProfile(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Body() dto: UpdateProfileDto
+  ) {
+    const result = await this.authService.updateProfile(tenantId, user.id, dto);
+    return withAudit(result.after, {
+      tenantId,
+      entity: 'users',
+      entityId: user.id,
+      action: 'update',
+      before: result.before,
+      after: result.after,
+      by: user.id
+    });
+  }
+
+  @Post('change-password')
+  async changePassword(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Body() dto: ChangePasswordDto
+  ) {
+    await this.authService.changePassword(tenantId, user.id, dto);
+    return { success: true };
+  }
+
+  @Post('forgot-password')
+  @Public()
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Post('reset-password')
+  @Public()
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 }

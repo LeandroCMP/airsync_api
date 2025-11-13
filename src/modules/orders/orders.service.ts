@@ -1,7 +1,7 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, ForbiddenException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model } from 'mongoose';
-import { Order, OrderDocument, OrderBilling, BillingItem } from './order.schema';
+import { Order, OrderDocument, OrderBilling, BillingItem, OrderMaterial } from './order.schema';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { RescheduleOrderDto } from './dto/reschedule-order.dto';
@@ -15,9 +15,13 @@ import { executeWithTransactionIfSupported } from '../../common/utils/transactio
 import { EquipmentHistoryService } from '../equipment-history/equipment-history.service';
 import { TenantService } from '../../core/tenancy/tenant.service';
 import { OrderPaymentMethod } from './order.schema';
+import { CreateOrderPurchaseDto } from './dto/create-order-purchase.dto';
+import { PurchasesService } from '../purchases/purchases.service';
+import { CreatePurchaseDto } from '../purchases/dto/create-purchase.dto';
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
   constructor(
     @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
     private readonly inventoryService: InventoryService,
@@ -25,8 +29,54 @@ export class OrdersService {
     private readonly financeService: FinanceService,
     private readonly pdfService: PdfService,
     private readonly equipmentHistory: EquipmentHistoryService,
-    private readonly tenantService: TenantService
+    private readonly tenantService: TenantService,
+    private readonly purchasesService: PurchasesService
   ) {}
+
+  private isManager(user: any) {
+    return user?.role === 'owner' || user?.role === 'admin' || user?.role === 'manager';
+  }
+
+  private canAccessOrder(order: OrderDocument, user: any) {
+    if (!user) {
+      return false;
+    }
+    if (this.isManager(user)) {
+      return true;
+    }
+    return Array.isArray(order?.technicianIds)
+      ? order.technicianIds.some((techId) => String(techId) === String(user.id))
+      : false;
+  }
+
+  ensureCanView(order: OrderDocument, user: any) {
+    if (!this.canAccessOrder(order, user)) {
+      throw new ForbiddenException({
+        code: 'ORDER_FORBIDDEN',
+        message: 'You are not allowed to view this order'
+      });
+    }
+  }
+
+  private refreshOrderCosts(order: OrderDocument) {
+    const materialsCost = (order.materials || []).reduce((sum, mat: any) => {
+      const qty = mat?.qty || 0;
+      const unitCost = mat?.unitCost || 0;
+      return sum + qty * unitCost;
+    }, 0);
+    const costs = order.costs || {};
+    costs.materials = Number(materialsCost.toFixed(2));
+    const labor = Number(costs.labor || 0);
+    const overhead = Number(costs.overhead || 0);
+    const purchases = Number(costs.purchases || 0);
+    costs.total = Number((materialsCost + labor + overhead + purchases).toFixed(2));
+    order.costs = costs;
+    if (order.costCenterId) {
+      const centers = new Set(order.costCenters || []);
+      centers.add(order.costCenterId);
+      order.costCenters = Array.from(centers);
+    }
+  }
 
   private computeBilling(billingItems: BillingItem[] = [], discount = 0): OrderBilling {
     const subtotal = billingItems.reduce((sum, item) => sum + item.qty * item.unitPrice, 0);
@@ -61,6 +111,42 @@ export class OrdersService {
     return { feePercent, feeValue, netAmount };
   }
 
+  private async hydrateMaterialsMetadata(
+    tenantId: string,
+    materials: {
+      itemId: string;
+      qty: number;
+      itemName?: string;
+      description?: string;
+      unitCost?: number;
+    }[],
+    session?: ClientSession | null
+  ) {
+    if (!materials?.length) {
+      return [];
+    }
+    const cache = new Map<string, any>();
+    const snapshots = [];
+    for (const material of materials) {
+      const snapshot = { ...material };
+      if (!snapshot.itemName || snapshot.unitCost === undefined) {
+        let inventory = cache.get(material.itemId);
+        if (!inventory) {
+          inventory = await this.inventoryService.findById(tenantId, material.itemId, session);
+          cache.set(material.itemId, inventory);
+        }
+        if (!snapshot.itemName) {
+          snapshot.itemName = inventory.name;
+        }
+        if (snapshot.unitCost === undefined) {
+          snapshot.unitCost = inventory.avgCost ?? 0;
+        }
+      }
+      snapshots.push(snapshot);
+    }
+    return snapshots;
+  }
+
   private async loadOrderForUpdate(
     tenantId: string,
     id: string,
@@ -79,9 +165,15 @@ export class OrdersService {
 
   async create(tenantId: string, dto: CreateOrderDto, userId: string) {
     return executeWithTransactionIfSupported(this.orderModel.db, async (session) => {
-      const materials = (dto.materials || []).map((m) => ({
+      const materialSnapshots = await this.hydrateMaterialsMetadata(
+        tenantId,
+        dto.materials || [],
+        session
+      );
+      const materials = materialSnapshots.map((m) => ({
         itemId: m.itemId,
         qty: m.qty,
+        unitCost: m.unitCost,
         itemName: m.itemName,
         description: m.description,
         reserved: false
@@ -94,6 +186,8 @@ export class OrdersService {
         clientId: dto.clientId,
         locationId: dto.locationId,
         equipmentId: dto.equipmentId,
+        costCenterId: dto.costCenterId,
+        saleId: dto.saleId,
         status,
         scheduledAt,
         technicianIds: dto.technicianIds || [],
@@ -103,7 +197,8 @@ export class OrdersService {
         photoUrls: [],
         notes: dto.notes,
         billing: this.computeBilling(dto.billingItems, dto.billingDiscount),
-        audit: { createdBy: userId, updatedBy: userId }
+        audit: { createdBy: userId, updatedBy: userId },
+        costCenters: dto.costCenterId ? [dto.costCenterId] : []
       });
 
       if (materials.length) {
@@ -143,17 +238,23 @@ export class OrdersService {
 
   async list(
     tenantId: string,
-    filters: { status?: string; from?: string; to?: string; tech?: string }
+    filters: { status?: string; from?: string; to?: string; tech?: string },
+    user: any
   ) {
     const query: any = { tenantId, deletedAt: null };
+    const isManager = this.isManager(user);
     if (filters.status) query.status = filters.status;
     if (filters.from || filters.to) {
       query.scheduledAt = {};
       if (filters.from) query.scheduledAt.$gte = new Date(filters.from);
       if (filters.to) query.scheduledAt.$lte = new Date(filters.to);
     }
-    if (filters.tech) {
-      query.technicianIds = filters.tech;
+    if (isManager) {
+      if (filters.tech) {
+        query.technicianIds = filters.tech;
+      }
+    } else {
+      query.technicianIds = user.id;
     }
     return this.orderModel.find(query).lean();
   }
@@ -163,6 +264,24 @@ export class OrdersService {
       .find({ tenantId, equipmentId, deletedAt: null })
       .sort({ scheduledAt: -1, createdAt: -1 })
       .lean();
+  }
+
+  async getCostSummary(tenantId: string, id: string, user: any) {
+    const order = await this.findById(tenantId, id);
+    this.ensureCanView(order, user);
+    this.refreshOrderCosts(order);
+    await order.save();
+    const costs = order.costs || {};
+    const billingTotal = order.billing?.total || 0;
+    const margin = Number((billingTotal - (costs.total || 0)).toFixed(2));
+    return {
+      orderId: order.id,
+      costCenterId: order.costCenterId,
+      billingTotal,
+      costs,
+      costCenters: order.costCenters || [],
+      margin
+    };
   }
 
   async update(tenantId: string, id: string, dto: UpdateOrderDto, userId: string) {
@@ -182,6 +301,14 @@ export class OrdersService {
     if (dto.checklist) order.checklist = dto.checklist as any;
     if (dto.billingItems) order.billing = this.computeBilling(dto.billingItems, dto.billingDiscount);
     if (dto.notes !== undefined) order.notes = dto.notes;
+    if (dto.costCenterId !== undefined) {
+      order.costCenterId = dto.costCenterId;
+      const centers = new Set(order.costCenters || []);
+      if (dto.costCenterId) {
+        centers.add(dto.costCenterId);
+      }
+      order.costCenters = Array.from(centers);
+    }
     order.audit.updatedBy = userId;
     await order.save();
     return order.toObject();
@@ -190,14 +317,19 @@ export class OrdersService {
   async reserveMaterials(tenantId: string, id: string, dto: OrderMaterialsDto, userId: string) {
     return executeWithTransactionIfSupported(this.orderModel.db, async (session) => {
       const order = await this.loadOrderForUpdate(tenantId, id, session);
+      const hydratedMaterials = await this.hydrateMaterialsMetadata(
+        tenantId,
+        dto.materials || [],
+        session
+      );
       await this.inventoryService.reserveForOrder(
         tenantId,
         order.id,
-        dto.materials,
+        hydratedMaterials,
         userId,
         session || undefined
       );
-      for (const mat of dto.materials) {
+      for (const mat of hydratedMaterials) {
         const existing = order.materials.find((m) => m.itemId === mat.itemId);
         if (existing) {
           existing.qty += mat.qty;
@@ -208,12 +340,16 @@ export class OrdersService {
           if (mat.description) {
             existing.description = mat.description;
           }
+          if (mat.unitCost !== undefined) {
+            existing.unitCost = mat.unitCost;
+          }
         } else {
           order.materials.push({
             itemId: mat.itemId,
             qty: mat.qty,
             itemName: mat.itemName,
             description: mat.description,
+            unitCost: mat.unitCost,
             reserved: true
           });
         }
@@ -241,10 +377,95 @@ export class OrdersService {
           existing.deductedAt = new Date();
         }
       }
+      this.refreshOrderCosts(order);
       order.audit.updatedBy = userId;
       await order.save(session ? { session } : undefined);
       return order.toObject();
     });
+  }
+
+  async createPurchaseFromOrder(
+    tenantId: string,
+    id: string,
+    dto: CreateOrderPurchaseDto,
+    userId: string
+  ) {
+    const order = await this.findById(tenantId, id);
+    const baseItems =
+      dto.items && dto.items.length
+        ? dto.items.map((item) => ({
+            itemId: item.itemId,
+            qty: item.qty,
+            unitCost: item.unitCost,
+            costCenterId: item.costCenterId
+          }))
+        : (order.materials || []).map((material) => ({
+            itemId: material.itemId,
+            qty: material.qty,
+            unitCost: material.unitCost,
+            costCenterId: order.costCenterId
+          }));
+
+    const prepared = baseItems.filter((item) => (item.qty || 0) > 0);
+    if (!prepared.length) {
+      throw new BadRequestException({
+        code: 'ORDER_PURCHASE_NO_ITEMS',
+        message: 'Nenhum item disponível para gerar compra a partir desta OS'
+      });
+    }
+
+    const indexesToHydrate = prepared
+      .map((item, index) =>
+        item.unitCost === undefined || item.unitCost === null ? index : -1
+      )
+      .filter((index) => index >= 0);
+    if (indexesToHydrate.length) {
+      const payload = indexesToHydrate.map((idx) => ({
+        itemId: prepared[idx].itemId,
+        qty: prepared[idx].qty,
+        unitCost: prepared[idx].unitCost
+      }));
+      const hydrated = await this.hydrateMaterialsMetadata(tenantId, payload);
+      indexesToHydrate.forEach((targetIdx, arrayIdx) => {
+        prepared[targetIdx].unitCost = hydrated[arrayIdx].unitCost ?? 0;
+      });
+    }
+
+    const purchaseItems = prepared.map((item) => ({
+      itemId: item.itemId,
+      qty: item.qty,
+      unitCost: Number((item.unitCost ?? 0).toFixed(2)),
+      orderId: String(order.id),
+      costCenterId: item.costCenterId || order.costCenterId
+    }));
+
+    const computedSubtotal = purchaseItems.reduce(
+      (sum, item) => sum + item.qty * item.unitCost,
+      0
+    );
+    const subtotal =
+      dto.subtotal !== undefined && dto.subtotal !== null ? dto.subtotal : computedSubtotal;
+    const normalizedSubtotal = Number(Number(subtotal).toFixed(2));
+
+    const paymentDueDate = dto.paymentDueDate ? new Date(dto.paymentDueDate) : undefined;
+    if (paymentDueDate && Number.isNaN(paymentDueDate.getTime())) {
+      throw new BadRequestException({
+        code: 'PURCHASE_INVALID_DUE_DATE',
+        message: 'paymentDueDate inválido'
+      });
+    }
+
+    const payload: CreatePurchaseDto = {
+      supplierId: dto.supplierId,
+      status: dto.status || 'draft',
+      items: purchaseItems,
+      freight: dto.freight,
+      paymentDueDate,
+      subtotal: normalizedSubtotal,
+      notes: dto.notes
+    };
+
+    return this.purchasesService.create(tenantId, payload, userId);
   }
 
   async startOrder(tenantId: string, id: string, userId: string) {
@@ -283,6 +504,15 @@ export class OrdersService {
       }
 
       if (!dto.payments || !dto.payments.length) {
+        this.logger.warn(
+          `finishOrder called without payments`,
+          JSON.stringify({
+            orderId: id,
+            tenantId,
+            hasPayments: !!dto.payments,
+            paymentsLength: dto.payments?.length || 0
+          })
+        );
         throw new BadRequestException({
           code: 'PAYMENTS_REQUIRED',
           message: 'At least one payment is required to close the order'
@@ -314,7 +544,13 @@ export class OrdersService {
       });
 
       const paymentSum = payments.reduce((sum, payment) => sum + payment.amount, 0);
-      const orderTotal = order.billing?.total ?? 0;
+      let billingSnapshot = order.billing;
+      if (dto.billingItems) {
+        billingSnapshot = this.computeBilling(dto.billingItems, dto.discount);
+      } else if (dto.discount !== undefined && order.billing) {
+        billingSnapshot = this.computeBilling(order.billing.items || [], dto.discount);
+      }
+      const orderTotal = billingSnapshot?.total ?? 0;
       if (Math.abs(paymentSum - orderTotal) > 0.01) {
         throw new BadRequestException({
           code: 'PAYMENT_MISMATCH',
@@ -342,8 +578,8 @@ export class OrdersService {
         );
       }
 
-      if (dto.billingItems) {
-        order.billing = this.computeBilling(dto.billingItems, dto.discount);
+      if (billingSnapshot) {
+        order.billing = billingSnapshot;
       }
       if (dto.notes !== undefined) {
         order.notes = dto.notes;
@@ -359,6 +595,7 @@ export class OrdersService {
       if (order.billing) {
         order.billing.status = 'paid';
       }
+      this.refreshOrderCosts(order);
       order.status = 'done';
       order.finishedAt = new Date();
       order.timesheet.end = new Date();

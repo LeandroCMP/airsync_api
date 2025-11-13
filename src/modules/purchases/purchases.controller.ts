@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { PurchasesService } from './purchases.service';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
 import { ReceivePurchaseDto } from './dto/receive-purchase.dto';
+import { CancelPurchaseDto } from './dto/cancel-purchase.dto';
 import { TenantId } from '../../common/decorators/tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -52,6 +53,66 @@ export class PurchasesController {
     });
   }
 
+  @Patch(':id/submit')
+  @Permissions('inventory.write')
+  async submit(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Param('id') id: string
+  ) {
+    const before = await this.purchasesService.findById(tenantId, id);
+    const submitted = await this.purchasesService.submit(tenantId, id, user.id);
+    return withAudit(submitted, {
+      tenantId,
+      entity: 'purchases',
+      entityId: id,
+      action: 'update',
+      before: before.toObject(),
+      after: submitted,
+      by: user.id
+    });
+  }
+
+  @Patch(':id/approve')
+  @Permissions('inventory.write')
+  async approve(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Param('id') id: string
+  ) {
+    const before = await this.purchasesService.findById(tenantId, id);
+    const approved = await this.purchasesService.approve(tenantId, id, user.id);
+    return withAudit(approved, {
+      tenantId,
+      entity: 'purchases',
+      entityId: id,
+      action: 'update',
+      before: before.toObject(),
+      after: approved,
+      by: user.id
+    });
+  }
+
+  @Patch(':id/order')
+  @Permissions('inventory.write')
+  async markOrdered(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Param('id') id: string
+  ) {
+    const before = await this.purchasesService.findById(tenantId, id);
+    const ordered = await this.purchasesService.markOrdered(tenantId, id, user.id);
+    return withAudit(ordered, {
+      tenantId,
+      entity: 'purchases',
+      entityId: id,
+      action: 'update',
+      before: before.toObject(),
+      after: ordered,
+      by: user.id
+    });
+  }
+
   @Get()
   @Permissions('inventory.read')
   @ApiOperation({ summary: 'Listar compras' })
@@ -74,5 +135,26 @@ export class PurchasesController {
   async findOne(@TenantId() tenantId: string, @Param('id') id: string) {
     const purchase = await this.purchasesService.findById(tenantId, id);
     return purchase.toObject();
+  }
+
+  @Patch(':id/cancel')
+  @Permissions('inventory.write')
+  async cancel(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: CancelPurchaseDto
+  ) {
+    const before = await this.purchasesService.findById(tenantId, id);
+    const canceled = await this.purchasesService.cancel(tenantId, id, dto, user.id);
+    return withAudit(canceled, {
+      tenantId,
+      entity: 'purchases',
+      entityId: id,
+      action: 'update',
+      before: before.toObject(),
+      after: canceled,
+      by: user.id
+    });
   }
 }

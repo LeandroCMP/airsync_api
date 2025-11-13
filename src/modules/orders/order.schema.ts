@@ -27,6 +27,9 @@ export class OrderMaterial {
   qty: number;
 
   @Prop()
+  unitCost?: number;
+
+  @Prop()
   itemName?: string;
 
   @Prop()
@@ -168,6 +171,24 @@ export class Order {
 
   @Prop({ default: 0 })
   paymentNetTotal?: number;
+
+  @Prop()
+  costCenterId?: string;
+
+  @Prop()
+  saleId?: string;
+
+  @Prop({ type: Object, default: {} })
+  costs?: {
+    materials?: number;
+    labor?: number;
+    overhead?: number;
+    purchases?: number;
+    total?: number;
+  };
+
+  @Prop({ type: [String], default: [] })
+  costCenters?: string[];
 
   @Prop()
   financeTransactionId?: string;

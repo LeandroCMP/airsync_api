@@ -27,6 +27,10 @@ import { TenantGuard } from './core/tenancy/tenant.guard';
 import { RbacGuard } from './core/rbac/rbac.guard';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { AuditModule } from './core/audit/audit.module';
+import { CostCentersModule } from './modules/cost-centers/cost-centers.module';
+import { NotificationsModule } from './core/notifications/notifications.module';
+import { SalesModule } from './modules/sales/sales.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 
 @Module({
   imports: [
@@ -57,6 +61,10 @@ import { AuditModule } from './core/audit/audit.module';
     CrmModule,
     ReportsModule,
     SyncModule,
+    CostCentersModule,
+    NotificationsModule,
+    SalesModule,
+    SubscriptionsModule,
     ...(process.env.NODE_ENV === 'test' ? [] : [SeedModule])
   ],
   providers: [

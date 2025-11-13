@@ -9,6 +9,8 @@ import { AuthLoginLog, AuthLoginLogSchema } from './auth-login-log.schema';
 import { AuthLogService } from './auth-log.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { TenancyModule } from '../tenancy/tenancy.module';
+import { PasswordResetToken, PasswordResetTokenSchema } from './password-reset-token.schema';
+import { SubscriptionsModule } from '../../modules/subscriptions/subscriptions.module';
 
 @Module({
   imports: [
@@ -17,8 +19,10 @@ import { TenancyModule } from '../tenancy/tenancy.module';
     TenancyModule,
     MongooseModule.forFeature([
       { name: Session.name, schema: SessionSchema },
-      { name: AuthLoginLog.name, schema: AuthLoginLogSchema }
-    ])
+      { name: AuthLoginLog.name, schema: AuthLoginLogSchema },
+      { name: PasswordResetToken.name, schema: PasswordResetTokenSchema }
+    ]),
+    SubscriptionsModule
   ],
   providers: [AuthService, JwtStrategy, AuthLogService],
   controllers: [AuthController],

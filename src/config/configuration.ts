@@ -18,5 +18,8 @@ export default () => ({
   },
   cors: {
     origins: process.env.CORS_ORIGINS || '*'
+  },
+  openai: {
+    apiKey: process.env.OPENAI_API_KEY || ''
   }
 });

@@ -7,6 +7,7 @@ import { Client, ClientDocument } from '../modules/clients/client.schema';
 import { Order, OrderDocument } from '../modules/orders/order.schema';
 import { InventoryItem, InventoryItemDocument } from '../modules/inventory/inventory-item.schema';
 import * as bcrypt from 'bcrypt';
+import { ROLE_PERMISSION_PRESETS } from '../modules/users/user-permissions.constants';
 
 @Injectable()
 export class SeedService implements OnModuleInit {
@@ -32,8 +33,8 @@ export class SeedService implements OnModuleInit {
       name: 'Admin Demo',
       email: 'admin@demo.local',
       passwordHash,
-      role: 'admin',
-      permissions: ['*'],
+      role: 'owner',
+      permissions: [...ROLE_PERMISSION_PRESETS.owner],
       active: true
     });
     const client = await this.clientModel.create({

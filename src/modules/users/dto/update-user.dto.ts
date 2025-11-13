@@ -16,7 +16,7 @@ export class UpdateUserDto {
   @IsOptional()
   name?: string;
 
-  @IsEnum(['admin', 'manager', 'tech', 'viewer'])
+  @IsEnum(['owner', 'admin', 'manager', 'tech', 'viewer'])
   @IsOptional()
   role?: UserRole;
 

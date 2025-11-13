@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class UpdateInventoryItemDto {
   @IsString()
@@ -25,6 +25,10 @@ export class UpdateInventoryItemDto {
   @IsOptional()
   supplierId?: string;
 
+  @IsString()
+  @IsOptional()
+  categoryId?: string;
+
   @IsNumber()
   @IsOptional()
   avgCost?: number;
@@ -32,4 +36,12 @@ export class UpdateInventoryItemDto {
   @IsNumber()
   @IsOptional()
   sellPrice?: number;
+
+  @IsNumber()
+  @IsOptional()
+  markupPercent?: number;
+
+  @IsEnum(['manual', 'category'])
+  @IsOptional()
+  pricingMode?: 'manual' | 'category';
 }

@@ -131,6 +131,58 @@ export class UsersService {
     return this.userModel.findOne({ email: email.toLowerCase(), deletedAt: null });
   }
 
+  async updateSelf(tenantId: string, userId: string, dto: { name?: string; email?: string }) {
+    const user = await this.userModel.findOne({ tenantId, _id: userId, deletedAt: null });
+    if (!user) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
+    }
+    if (dto.email && dto.email.toLowerCase() !== user.email) {
+      const exists = await this.userModel.exists({
+        email: dto.email.toLowerCase(),
+        deletedAt: null,
+        _id: { $ne: user._id }
+      });
+      if (exists) {
+        throw new ConflictException({ code: 'EMAIL_TAKEN', message: 'Email already in use' });
+      }
+      user.email = dto.email.toLowerCase();
+    }
+    if (dto.name !== undefined) {
+      user.name = dto.name;
+    }
+    user.updatedBy = userId;
+    await user.save();
+    return this.sanitize(user);
+  }
+
+  async changePassword(tenantId: string, userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.userModel.findOne({ tenantId, _id: userId, deletedAt: null });
+    if (!user) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
+    }
+    const matches = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!matches) {
+      throw new BadRequestException({
+        code: 'INVALID_CURRENT_PASSWORD',
+        message: 'Senha atual incorreta'
+      });
+    }
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    user.updatedBy = userId;
+    await user.save();
+  }
+
+  async forcePasswordChange(tenantId: string, userId: string, newPassword: string, updatedBy: string) {
+    const user = await this.userModel.findOne({ tenantId, _id: userId, deletedAt: null });
+    if (!user) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
+    }
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    user.updatedBy = updatedBy;
+    await user.save();
+    return this.sanitize(user);
+  }
+
   async findAll(tenantId: string, role?: string) {
     const query: any = { tenantId, deletedAt: null };
     if (role) {

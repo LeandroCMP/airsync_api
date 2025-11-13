@@ -35,6 +35,15 @@ export class Tenant {
 
   @Prop({ default: 0 })
   chequeFeePercent?: number;
+
+  @Prop({ enum: ['active', 'past_due', 'suspended'], default: 'active' })
+  billingStatus?: 'active' | 'past_due' | 'suspended';
+
+  @Prop()
+  suspendedAt?: Date;
+
+  @Prop()
+  suspensionReason?: string;
 }
 
 export type TenantDocument = Tenant & Document;

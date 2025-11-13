@@ -2,10 +2,12 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, ClientSession } from 'mongoose';
 import { InventoryItem, InventoryItemDocument } from './inventory-item.schema';
+import { InventoryCategory, InventoryCategoryDocument } from './inventory-category.schema';
 import { CreateInventoryItemDto } from './dto/create-item.dto';
 import { UpdateInventoryItemDto } from './dto/update-item.dto';
 import { CreateInventoryMovementDto } from './dto/create-movement.dto';
 import { SearchInventoryItemsDto, StockStatusFilter } from './dto/search-items.dto';
+import { calculateSellPrice } from './pricing.util';
 
 export type StockSeverity = 'critical' | 'below_minimum' | 'adequate';
 
@@ -15,16 +17,72 @@ export interface DecoratedInventoryItem {
   isBelowMinimum: boolean;
   isCriticalStock: boolean;
   stockSeverity: StockSeverity;
+  suggestedSellPrice?: number;
+  priceDeviationPercent?: number;
+  priceDeviationValue?: number;
+  pricingMode?: 'manual' | 'category';
   [key: string]: any;
 }
 
 @Injectable()
 export class InventoryService {
+  private static readonly COST_HISTORY_LIMIT = 20;
+
   constructor(
-    @InjectModel(InventoryItem.name) private readonly inventoryModel: Model<InventoryItemDocument>
+    @InjectModel(InventoryItem.name) private readonly inventoryModel: Model<InventoryItemDocument>,
+    @InjectModel(InventoryCategory.name)
+    private readonly categoryModel: Model<InventoryCategoryDocument>
   ) {}
 
+  private async getCategory(tenantId: string, categoryId?: string | null) {
+    if (!categoryId) {
+      return null;
+    }
+    const category = await this.categoryModel.findOne({ tenantId, _id: categoryId });
+    if (!category) {
+      throw new NotFoundException({ code: 'CATEGORY_NOT_FOUND', message: 'Inventory category not found' });
+    }
+    return category;
+  }
+
+  private appendCostHistory(item: InventoryItemDocument, cost?: number, source?: string) {
+    if (typeof cost !== 'number' || Number.isNaN(cost)) {
+      return;
+    }
+    if (!item.costHistory) {
+      item.costHistory = [];
+    }
+    item.costHistory.push({ cost, at: new Date(), source });
+    if (item.costHistory.length > InventoryService.COST_HISTORY_LIMIT) {
+      item.costHistory.splice(0, item.costHistory.length - InventoryService.COST_HISTORY_LIMIT);
+    }
+  }
+
   async createItem(tenantId: string, dto: CreateInventoryItemDto, userId: string) {
+    const resolvedCategoryId = dto.categoryId || null;
+    const categoryDoc = resolvedCategoryId ? await this.getCategory(tenantId, resolvedCategoryId) : null;
+    let pricingMode: 'manual' | 'category' =
+      dto.pricingMode ??
+      (dto.markupPercent !== undefined ? 'manual' : resolvedCategoryId ? 'category' : 'manual');
+
+    let markupPercent = dto.markupPercent ?? 0;
+    if (pricingMode === 'category') {
+      if (!resolvedCategoryId || !categoryDoc) {
+        throw new BadRequestException({
+          code: 'CATEGORY_REQUIRED',
+          message: 'Category must be provided when pricingMode is category'
+        });
+      }
+      markupPercent = categoryDoc.markupPercent ?? 0;
+    }
+
+    const computedSellPrice =
+      dto.sellPrice !== undefined ? dto.sellPrice : calculateSellPrice(dto.avgCost, markupPercent);
+    const initialCostHistory =
+      typeof dto.avgCost === 'number'
+        ? [{ cost: dto.avgCost, at: new Date(), source: 'initial' }]
+        : [];
+
     const item = await this.inventoryModel.create({
       tenantId,
       name: dto.name,
@@ -34,8 +92,13 @@ export class InventoryService {
       minQty: dto.minQty || 0,
       maxQty: dto.maxQty,
       supplierId: dto.supplierId,
+      categoryId: resolvedCategoryId,
       avgCost: dto.avgCost,
-      sellPrice: dto.sellPrice,
+      sellPrice: computedSellPrice,
+      markupPercent,
+      pricingMode,
+      lastPurchaseCost: dto.avgCost,
+      costHistory: initialCostHistory,
       onHand: 0,
       reserved: 0,
       updatedBy: userId,
@@ -49,14 +112,66 @@ export class InventoryService {
     if (!item) {
       throw new NotFoundException({ code: 'NOT_FOUND', message: 'Inventory item not found' });
     }
+    let avgCostUpdated = false;
     if (dto.name !== undefined) item.name = dto.name;
     if (dto.barcode !== undefined) item.barcode = dto.barcode;
     if (dto.unit !== undefined) item.unit = dto.unit;
     if (dto.minQty !== undefined) item.minQty = dto.minQty;
     if (dto.maxQty !== undefined) item.maxQty = dto.maxQty;
     if (dto.supplierId !== undefined) item.supplierId = dto.supplierId;
-    if (dto.avgCost !== undefined) item.avgCost = dto.avgCost;
-    if (dto.sellPrice !== undefined) item.sellPrice = dto.sellPrice;
+    if (dto.categoryId !== undefined) {
+      if (dto.categoryId) {
+        await this.getCategory(tenantId, dto.categoryId);
+        item.categoryId = dto.categoryId;
+      } else {
+        item.categoryId = null;
+      }
+    }
+    if (dto.avgCost !== undefined) {
+      item.avgCost = dto.avgCost;
+      this.appendCostHistory(item, dto.avgCost, 'manual_adjustment');
+      avgCostUpdated = true;
+    }
+
+    let pricingMode: 'manual' | 'category' = dto.pricingMode ?? item.pricingMode ?? 'manual';
+    item.pricingMode = pricingMode;
+
+    let markupPercent = item.markupPercent ?? 0;
+    if (pricingMode === 'category') {
+      const targetCategoryId = item.categoryId || dto.categoryId;
+      if (!targetCategoryId) {
+        throw new BadRequestException({
+          code: 'CATEGORY_REQUIRED',
+          message: 'Category must be provided when pricingMode is category'
+        });
+      }
+      const category = await this.getCategory(tenantId, targetCategoryId);
+      item.categoryId = targetCategoryId;
+      markupPercent = category.markupPercent ?? 0;
+    } else if (dto.markupPercent !== undefined) {
+      markupPercent = dto.markupPercent;
+    } else if (item.markupPercent === undefined) {
+      markupPercent = 0;
+    }
+    item.markupPercent = markupPercent;
+
+    let shouldRecalculatePrice = avgCostUpdated || pricingMode === 'category';
+    if (dto.markupPercent !== undefined) {
+      shouldRecalculatePrice = true;
+    }
+
+    if (dto.sellPrice !== undefined) {
+      item.sellPrice = dto.sellPrice;
+      shouldRecalculatePrice = false;
+    }
+
+    if (shouldRecalculatePrice) {
+      const recalculated = calculateSellPrice(item.avgCost, item.markupPercent);
+      if (recalculated !== undefined) {
+        item.sellPrice = recalculated;
+      }
+    }
+
     item.updatedBy = userId;
     await item.save();
     return item.toObject();
@@ -121,6 +236,22 @@ export class InventoryService {
     return item;
   }
 
+  async getCategoryInfo(tenantId: string, categoryId: string) {
+    if (!categoryId) {
+      return null;
+    }
+    return this.categoryModel.findOne({ tenantId, _id: categoryId }).lean();
+  }
+
+  async getCostHistory(tenantId: string, id: string) {
+    const item = await this.findById(tenantId, id);
+    return (item.costHistory || []).map((entry) => ({
+      cost: entry.cost,
+      at: entry.at,
+      source: entry.source
+    }));
+  }
+
   async recordMovement(
     tenantId: string,
     dto: CreateInventoryMovementDto,
@@ -142,6 +273,14 @@ export class InventoryService {
           const totalQty = previousQty + dto.qty;
           const totalCost = previousCost + dto.cost * dto.qty;
           item.avgCost = totalQty > 0 ? totalCost / totalQty : item.avgCost;
+          item.lastPurchaseCost = dto.cost;
+          this.appendCostHistory(item, dto.cost, dto.ref || 'movement');
+        }
+        if (item.markupPercent !== undefined && item.avgCost !== undefined) {
+          const updatedSellPrice = calculateSellPrice(item.avgCost, item.markupPercent);
+          if (updatedSellPrice !== undefined) {
+            item.sellPrice = updatedSellPrice;
+          }
         }
         break;
       }
@@ -257,6 +396,38 @@ export class InventoryService {
       .lean();
   }
 
+  async rebalance(tenantId: string, days = 30) {
+    const window = Math.max(1, Number(days) || 30);
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - window);
+    const items = await this.inventoryModel.find({ tenantId, deletedAt: null }).lean();
+    const suggestions = [];
+    for (const item of items) {
+      const entries = Array.isArray(item.entries) ? item.entries : [];
+      const recentOut = entries.filter(
+        (entry: any) =>
+          entry.type === 'out' && entry.at && new Date(entry.at).getTime() >= fromDate.getTime()
+      );
+      const totalOut = recentOut.reduce((sum: number, entry: any) => sum + (entry.qty || 0), 0);
+      const dailyUsage = totalOut / window;
+      const available = (item.onHand || 0) - (item.reserved || 0);
+      const safetyStock = item.minQty || 0;
+      const targetStock = safetyStock + dailyUsage * window;
+      const recommended = Math.max(Math.ceil(targetStock - available), 0);
+      if (recommended > 0) {
+        suggestions.push({
+          itemId: item._id,
+          name: item.name,
+          available,
+          minQty: safetyStock,
+          dailyUsage: Number(dailyUsage.toFixed(2)),
+          recommendedQty: recommended
+        });
+      }
+    }
+    return suggestions.sort((a, b) => b.recommendedQty - a.recommendedQty);
+  }
+
   async removeItem(tenantId: string, id: string, userId: string) {
     const item = await this.inventoryModel.findOne({ tenantId, _id: id, deletedAt: null });
     if (!item) {
@@ -294,13 +465,28 @@ export class InventoryService {
       ? 'below_minimum'
       : 'adequate';
 
+    const suggestedSellPrice = calculateSellPrice(item.avgCost, item.markupPercent);
+    const sellPrice = typeof item.sellPrice === 'number' ? item.sellPrice : undefined;
+    const priceDeviationValue =
+      sellPrice !== undefined && suggestedSellPrice !== undefined
+        ? Number((sellPrice - suggestedSellPrice).toFixed(2))
+        : 0;
+    const priceDeviationPercent =
+      sellPrice !== undefined && suggestedSellPrice
+        ? Number((((sellPrice - suggestedSellPrice) / suggestedSellPrice) * 100).toFixed(2))
+        : 0;
+
     return {
       ...item,
       minimumQuantity: minQty,
       criticalThreshold: criticalThresholdValue,
       isBelowMinimum: belowMinimum,
       isCriticalStock: critical,
-      stockSeverity
+      stockSeverity,
+      suggestedSellPrice,
+      priceDeviationValue,
+      priceDeviationPercent,
+      pricingMode: item.pricingMode || 'manual'
     };
   }
 }

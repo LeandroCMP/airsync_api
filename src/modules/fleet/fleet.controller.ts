@@ -156,7 +156,7 @@ export class FleetController {
     @Param('id') id: string,
     @Body() dto: VehicleFuelDto
   ) {
-    const vehicle = await this.fleetService.addFuel(tenantId, id, dto);
+    const vehicle = await this.fleetService.addFuel(tenantId, id, dto, user.id);
     return withAudit(vehicle, {
       tenantId,
       entity: 'fleet_vehicles',
@@ -189,7 +189,7 @@ export class FleetController {
     @Param('id') id: string,
     @Body() dto: VehicleMaintenanceDto
   ) {
-    const vehicle = await this.fleetService.addMaintenance(tenantId, id, dto);
+    const vehicle = await this.fleetService.addMaintenance(tenantId, id, dto, user.id);
     return withAudit(vehicle, {
       tenantId,
       entity: 'fleet_vehicles',

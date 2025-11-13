@@ -25,7 +25,7 @@ export class CreateUserDto {
   @IsNotEmpty()
   password: string;
 
-  @IsEnum(['admin', 'manager', 'tech', 'viewer'])
+  @IsEnum(['owner', 'admin', 'manager', 'tech', 'viewer'])
   role: UserRole;
 
   @IsArray()
