@@ -2,13 +2,13 @@ import { IsDateString, IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-va
 
 export class CreateTimelineDto {
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Informe o cliente.' })
   clientId: string;
 
-  @IsEnum(['call', 'whatsapp', 'email', 'note', 'nps'])
+  @IsEnum(['call', 'whatsapp', 'email', 'note', 'nps'], { message: 'Tipo invalido.' })
   type: 'call' | 'whatsapp' | 'email' | 'note' | 'nps';
 
-  @IsDateString()
+  @IsDateString({}, { message: 'Informe uma data valida (ISO).' })
   @IsOptional()
   at?: Date;
 
@@ -17,6 +17,6 @@ export class CreateTimelineDto {
   by?: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Descreva a interacao.' })
   text: string;
 }

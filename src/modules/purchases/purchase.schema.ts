@@ -14,9 +14,6 @@ export class PurchaseItem {
 
   @Prop()
   orderId?: string;
-
-  @Prop()
-  costCenterId?: string;
 }
 
 const PurchaseItemSchema = SchemaFactory.createForClass(PurchaseItem);

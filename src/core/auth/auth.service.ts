@@ -14,7 +14,6 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
-import { SubscriptionsService } from '../../modules/subscriptions/subscriptions.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -113,7 +112,7 @@ export class AuthService {
         ip,
         ua
       });
-      throw new UnauthorizedException({ code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' });
+      throw new UnauthorizedException({ code: 'INVALID_CREDENTIALS', message: 'E-mail ou senha incorretos.' });
     }
     if (userDoc.active === false) {
       await this.authLog.logLoginAttempt({
@@ -127,7 +126,7 @@ export class AuthService {
       });
       throw new ForbiddenException({
         code: 'USER_INACTIVE',
-        message: 'User account is disabled. Contact your administrator to regain access.'
+        message: 'Conta desativada. Fale com o administrador para reativar.'
       });
     }
     const isValid = await bcrypt.compare(dto.password, userDoc.passwordHash);
@@ -141,9 +140,11 @@ export class AuthService {
         ip,
         ua
       });
-      throw new UnauthorizedException({ code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' });
+      throw new UnauthorizedException({ code: 'INVALID_CREDENTIALS', message: 'E-mail ou senha incorretos.' });
     }
-    await this.subscriptionsService.assertTenantCanLogin(tenantId);
+    const tenant = await this.subscriptionsService.assertTenantCanLogin(tenantId, userDoc.role, {
+      allowOwnerSuspended: true
+    });
     const session = await this.sessionModel.create({
       tenantId,
       userId: userDoc._id.toString(),
@@ -168,7 +169,11 @@ export class AuthService {
       ip,
       ua
     });
-    return { user: this.usersService.sanitize(userDoc), ...tokens };
+    const billingStatus = tenant?.billingStatus;
+    return {
+      user: { ...this.usersService.sanitize(userDoc), billingStatus, accountSuspended: billingStatus === 'suspended' },
+      ...tokens
+    };
   }
 
   async refresh(dto: RefreshDto, ip?: string, ua?: string) {
@@ -198,18 +203,22 @@ export class AuthService {
 
       const user = await this.usersService.findById(decoded.tenantId, decoded.sub);
       if (!user) {
-        throw new UnauthorizedException({ code: 'INVALID_REFRESH', message: 'User not found' });
+        throw new UnauthorizedException({ code: 'INVALID_REFRESH', message: 'Sessão inválida. Entre novamente.' });
       }
-      await this.subscriptionsService.assertTenantCanLogin(decoded.tenantId);
+      const tenant = await this.subscriptionsService.assertTenantCanLogin(decoded.tenantId, user.role, {
+        allowOwnerSuspended: true
+      });
       const payload = {
         sub: decoded.sub,
         tenantId: decoded.tenantId,
         role: user.role,
         permissions: user.permissions
       };
-      return this.generateTokens(payload, newSession);
+      const tokens = await this.generateTokens(payload, newSession);
+      const billingStatus = tenant?.billingStatus;
+      return { ...tokens, billingStatus, accountSuspended: billingStatus === 'suspended' };
     } catch (err) {
-      throw new UnauthorizedException({ code: 'INVALID_REFRESH', message: 'Refresh token invalid' });
+      throw new UnauthorizedException({ code: 'INVALID_REFRESH', message: 'Sessão inválida. Faça login novamente.' });
     }
   }
 

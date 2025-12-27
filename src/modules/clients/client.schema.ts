@@ -18,18 +18,8 @@ export class Client {
   @Prop({ type: [String], default: [] })
   emails: string[];
 
-  @Prop({ type: [String], default: [] })
-  tags: string[];
-
   @Prop()
   notes?: string;
-
-  @Prop({ type: Object })
-  nps?: {
-    score: number;
-    comment?: string;
-    at: Date;
-  };
 
   @Prop()
   updatedBy?: string;

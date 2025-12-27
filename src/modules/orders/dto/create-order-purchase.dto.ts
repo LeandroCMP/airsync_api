@@ -21,10 +21,6 @@ class OrderPurchaseItemDto {
   @Type(() => Number)
   @IsNumber()
   unitCost: number;
-
-  @IsString()
-  @IsOptional()
-  costCenterId?: string;
 }
 
 export class CreateOrderPurchaseDto {
@@ -58,4 +54,3 @@ export class CreateOrderPurchaseDto {
   @IsOptional()
   notes?: string;
 }
-

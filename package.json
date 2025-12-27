@@ -14,7 +14,8 @@
     "db:testuser": "ts-node --transpile-only scripts/create-test-user.ts",
     "db:create-azevedo-owner": "ts-node --transpile-only scripts/create-azevedo-owner.ts",
     "db:bootstrap-os": "ts-node --transpile-only scripts/bootstrap-os.ts",
-    "db:grant-admin": "ts-node --transpile-only scripts/grant-admin.ts"
+    "db:grant-admin": "ts-node --transpile-only scripts/grant-admin.ts",
+    "db:dedupe-finance-refs": "ts-node --transpile-only scripts/cleanup-finance-refs.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.2",
@@ -24,6 +25,7 @@
     "@nestjs/mongoose": "^10.0.3",
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.3.2",
+    "@nestjs/schedule": "^3.0.2",
     "@nestjs/swagger": "^7.1.4",
     "bcrypt": "^5.1.1",
     "class-transformer": "^0.5.1",
@@ -36,12 +38,15 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pdfkit": "^0.13.0",
+    "resend": "^3.4.0",
+    "stripe": "^19.3.1",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.3.2",
     "@nestjs/schematics": "^10.0.2",
     "@nestjs/testing": "^10.3.2",
+    "@types/cron": "^2.0.5",
     "@types/express": "^4.17.21",
     "@types/jest": "^29.5.5",
     "@types/jsonwebtoken": "^9.0.2",

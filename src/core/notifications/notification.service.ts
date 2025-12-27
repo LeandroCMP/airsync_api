@@ -1,22 +1,32 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { WhatsappService } from './whatsapp.service';
 
 export interface NotificationPayload {
-  type: 'purchase_submitted' | 'purchase_approved' | 'purchase_ordered';
+  type: string;
   tenantId: string;
-  purchaseId: string;
-  by?: string;
   message: string;
+  [key: string]: any;
 }
 
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
 
+  constructor(private readonly whatsappService: WhatsappService) {}
+
   async notify(payload: NotificationPayload) {
-    // Placeholder: integrate with email/SMS/push providers as needed.
-    this.logger.log(
-      `[Notification] ${payload.type} | tenant=${payload.tenantId} | purchase=${payload.purchaseId} | message=${payload.message}`
-    );
+    this.logger.log(`[Notification] ${payload.type} | tenant=${payload.tenantId} | message=${payload.message}`);
+    try {
+      const waSent = await this.whatsappService.trySendTemplate(payload);
+      if (waSent) {
+        this.logger.log(
+          `[Notification][WA] enviado | tenant=${payload.tenantId} | phoneId=${waSent.phoneId} | to=${waSent.to}`
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `[Notification][WA] falha | tenant=${payload.tenantId} | ${err instanceof Error ? err.message : err}`
+      );
+    }
   }
 }
-

@@ -9,7 +9,6 @@ import { InventoryService } from '../inventory/inventory.service';
 import { OrderMaterialsDto } from './dto/order-materials.dto';
 import { FilesService } from '../../core/files/files.service';
 import { FinishOrderDto } from './dto/finish-order.dto';
-import { FinanceService } from '../finance/finance.service';
 import { PdfService } from '../../pdf/pdf.service';
 import { executeWithTransactionIfSupported } from '../../common/utils/transaction.util';
 import { EquipmentHistoryService } from '../equipment-history/equipment-history.service';
@@ -18,6 +17,8 @@ import { OrderPaymentMethod } from './order.schema';
 import { CreateOrderPurchaseDto } from './dto/create-order-purchase.dto';
 import { PurchasesService } from '../purchases/purchases.service';
 import { CreatePurchaseDto } from '../purchases/dto/create-purchase.dto';
+import { FinanceService } from '../finance/finance.service';
+import { MaintenanceService } from './maintenance.service';
 
 @Injectable()
 export class OrdersService {
@@ -30,7 +31,8 @@ export class OrdersService {
     private readonly pdfService: PdfService,
     private readonly equipmentHistory: EquipmentHistoryService,
     private readonly tenantService: TenantService,
-    private readonly purchasesService: PurchasesService
+    private readonly purchasesService: PurchasesService,
+    private readonly maintenanceService: MaintenanceService
   ) {}
 
   private isManager(user: any) {
@@ -53,7 +55,7 @@ export class OrdersService {
     if (!this.canAccessOrder(order, user)) {
       throw new ForbiddenException({
         code: 'ORDER_FORBIDDEN',
-        message: 'You are not allowed to view this order'
+        message: 'Voce nao tem permissao para ver esta OS.'
       });
     }
   }
@@ -71,10 +73,10 @@ export class OrdersService {
     const purchases = Number(costs.purchases || 0);
     costs.total = Number((materialsCost + labor + overhead + purchases).toFixed(2));
     order.costs = costs;
-    if (order.costCenterId) {
-      const centers = new Set(order.costCenters || []);
-      centers.add(order.costCenterId);
-      order.costCenters = Array.from(centers);
+    if (order.billing) {
+      const revenue = order.billing.total || 0;
+      order.costs.total = costs.total;
+      order.margin = Number((revenue - costs.total).toFixed(2));
     }
   }
 
@@ -158,9 +160,43 @@ export class OrdersService {
     }
     const order = await query;
     if (!order) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'OS nao encontrada.' });
     }
     return order;
+  }
+
+  private async assertTechniciansAvailability(
+    tenantId: string,
+    scheduledAt: Date | undefined,
+    technicianIds: string[] | undefined,
+    excludeOrderId?: string,
+    session?: ClientSession | null
+  ) {
+    if (!scheduledAt || !technicianIds?.length) return;
+    const slotStart = new Date(Math.floor(scheduledAt.getTime() / 60000) * 60000);
+    const slotEnd = new Date(slotStart.getTime() + 60000);
+    const query: any = {
+      tenantId,
+      deletedAt: null,
+      status: { $in: ['scheduled', 'in_progress'] },
+      technicianIds: { $in: technicianIds },
+      scheduledAt: { $gte: slotStart, $lt: slotEnd }
+    };
+    if (excludeOrderId) {
+      query._id = { $ne: excludeOrderId };
+    }
+    const finder = this.orderModel.findOne(query);
+    if (session) {
+      finder.session(session);
+    }
+    const conflict = await finder.lean();
+    if (conflict) {
+      throw new BadRequestException({
+        code: 'TECH_ALREADY_BOOKED',
+        message: 'Tecnico ja possui OS neste horario.',
+        details: { orderId: conflict._id?.toString?.(), technicianIds }
+      });
+    }
   }
 
   async create(tenantId: string, dto: CreateOrderDto, userId: string) {
@@ -186,7 +222,6 @@ export class OrdersService {
         clientId: dto.clientId,
         locationId: dto.locationId,
         equipmentId: dto.equipmentId,
-        costCenterId: dto.costCenterId,
         saleId: dto.saleId,
         status,
         scheduledAt,
@@ -197,8 +232,7 @@ export class OrdersService {
         photoUrls: [],
         notes: dto.notes,
         billing: this.computeBilling(dto.billingItems, dto.billingDiscount),
-        audit: { createdBy: userId, updatedBy: userId },
-        costCenters: dto.costCenterId ? [dto.costCenterId] : []
+        audit: { createdBy: userId, updatedBy: userId }
       });
 
       if (materials.length) {
@@ -212,6 +246,13 @@ export class OrdersService {
         order.materials = order.materials.map((m) => ({ ...m, reserved: true }));
       }
 
+      await this.assertTechniciansAvailability(
+        tenantId,
+        scheduledAt,
+        order.technicianIds,
+        undefined,
+        session
+      );
       await order.save(session ? { session } : undefined);
 
       if (dto.equipmentId) {
@@ -231,7 +272,7 @@ export class OrdersService {
   async findById(tenantId: string, id: string) {
     const order = await this.orderModel.findOne({ tenantId, _id: id, deletedAt: null });
     if (!order) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'OS nao encontrada.' });
     }
     return order;
   }
@@ -270,45 +311,46 @@ export class OrdersService {
     const order = await this.findById(tenantId, id);
     this.ensureCanView(order, user);
     this.refreshOrderCosts(order);
-    await order.save();
     const costs = order.costs || {};
     const billingTotal = order.billing?.total || 0;
     const margin = Number((billingTotal - (costs.total || 0)).toFixed(2));
     return {
       orderId: order.id,
-      costCenterId: order.costCenterId,
       billingTotal,
       costs,
-      costCenters: order.costCenters || [],
       margin
     };
   }
 
   async update(tenantId: string, id: string, dto: UpdateOrderDto, userId: string) {
     const order = await this.findById(tenantId, id);
-    if (dto.status) order.status = dto.status;
+    if (dto.status) {
+      order.status = dto.status;
+      if (dto.status === 'canceled') {
+        order.finishedAt = new Date();
+        if (order.financeTransactionId) {
+          await this.financeService.voidByRef(tenantId, `order:${order._id.toString()}`);
+          order.financeTransactionId = undefined;
+        }
+      }
+    }
+    let nextDate = order.scheduledAt;
     if (dto.scheduledAt) {
-      const nextDate = new Date(dto.scheduledAt);
+      nextDate = new Date(dto.scheduledAt);
       if (Number.isNaN(nextDate.getTime())) {
         throw new BadRequestException({
           code: 'INVALID_SCHEDULE',
           message: 'scheduledAt must be a valid ISO 8601 date string'
         });
       }
-      order.scheduledAt = nextDate;
     }
+    const nextTechs = dto.technicianIds ?? order.technicianIds;
+    await this.assertTechniciansAvailability(tenantId, nextDate, nextTechs, order._id.toString());
+    if (nextDate) order.scheduledAt = nextDate;
     if (dto.technicianIds) order.technicianIds = dto.technicianIds;
     if (dto.checklist) order.checklist = dto.checklist as any;
     if (dto.billingItems) order.billing = this.computeBilling(dto.billingItems, dto.billingDiscount);
     if (dto.notes !== undefined) order.notes = dto.notes;
-    if (dto.costCenterId !== undefined) {
-      order.costCenterId = dto.costCenterId;
-      const centers = new Set(order.costCenters || []);
-      if (dto.costCenterId) {
-        centers.add(dto.costCenterId);
-      }
-      order.costCenters = Array.from(centers);
-    }
     order.audit.updatedBy = userId;
     await order.save();
     return order.toObject();
@@ -396,14 +438,12 @@ export class OrdersService {
         ? dto.items.map((item) => ({
             itemId: item.itemId,
             qty: item.qty,
-            unitCost: item.unitCost,
-            costCenterId: item.costCenterId
+            unitCost: item.unitCost
           }))
         : (order.materials || []).map((material) => ({
             itemId: material.itemId,
             qty: material.qty,
-            unitCost: material.unitCost,
-            costCenterId: order.costCenterId
+            unitCost: material.unitCost
           }));
 
     const prepared = baseItems.filter((item) => (item.qty || 0) > 0);
@@ -435,8 +475,7 @@ export class OrdersService {
       itemId: item.itemId,
       qty: item.qty,
       unitCost: Number((item.unitCost ?? 0).toFixed(2)),
-      orderId: String(order.id),
-      costCenterId: item.costCenterId || order.costCenterId
+      orderId: String(order.id)
     }));
 
     const computedSubtotal = purchaseItems.reduce(
@@ -482,7 +521,7 @@ export class OrdersService {
     return executeWithTransactionIfSupported(this.orderModel.db, async (session) => {
       const order = await this.loadOrderForUpdate(tenantId, id, session);
       if (order.status === 'done') {
-        throw new BadRequestException({ code: 'ORDER_ALREADY_FINISHED', message: 'Order already finished' });
+        throw new BadRequestException({ code: 'ORDER_ALREADY_FINISHED', message: 'OS ja foi finalizada.' });
       }
 
       if (order.checklist && order.checklist.length) {
@@ -605,37 +644,37 @@ export class OrdersService {
         );
       }
       order.audit.updatedBy = userId;
-      await order.save(session ? { session } : undefined);
+    await order.save(session ? { session } : undefined);
 
-      let financeTx: any = null;
-      if (order.billing.total > 0) {
-        financeTx = await this.financeService.create(
+    let financeTx: any = null;
+    if (order.billing.total > 0) {
+      financeTx = await this.financeService.create(
+        tenantId,
+        {
+          type: 'receivable',
+          ref: `order:${order.id}`,
+          partyId: order.clientId,
+          category: 'service',
+          description: `OS ${order.id}`,
+          dueDate: new Date(),
+          amount: order.billing.total
+        },
+        userId,
+        session || undefined
+      );
+      order.financeTransactionId = financeTx._id?.toString?.() ?? financeTx._id;
+      for (const payment of payments) {
+        await this.financeService.pay(
           tenantId,
+          order.financeTransactionId,
           {
-            type: 'receivable',
-            ref: `order:${order.id}`,
-            partyId: order.clientId,
-            category: 'service',
-            description: `OS ${order.id}`,
-            dueDate: new Date(),
-            amount: order.billing.total
+            method: payment.method as any,
+            amount: payment.amount
           },
-          userId,
-          session || undefined
+          userId
         );
-        order.financeTransactionId = financeTx._id?.toString?.() ?? financeTx._id;
-        for (const payment of payments) {
-          await this.financeService.pay(
-            tenantId,
-            order.financeTransactionId,
-            {
-              method: payment.method as any,
-              amount: payment.amount
-            },
-            userId
-          );
-        }
       }
+    }
 
       if (order.equipmentId) {
         await this.equipmentHistory.add(tenantId, {
@@ -647,6 +686,7 @@ export class OrdersService {
           by: userId
         });
       }
+      await this.maintenanceService.upsertRemindersFromOrder(order);
       return order.toObject();
     });
   }
@@ -689,6 +729,12 @@ export class OrdersService {
         message: 'scheduledAt must be a valid ISO 8601 date string'
       });
     }
+    await this.assertTechniciansAvailability(
+      tenantId,
+      nextDate,
+      order.technicianIds,
+      order._id.toString()
+    );
     order.scheduledAt = nextDate;
     if (dto.notes !== undefined) {
       order.notes = dto.notes;

@@ -18,34 +18,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request & { requestId?: string }>();
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
-    let message = 'Erro interno do servidor';
+    let message = 'Erro interno. Tente novamente em instantes.';
     let code = 'INTERNAL_ERROR';
     let details: any[] | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const res: any = exception.getResponse();
-      if (typeof res === 'string') {
-        // Use Portuguese fallback for default string responses
-        message = this.mapStatusToPtMessage(status);
-      } else {
-        const responseCode = res.code || this.mapStatusToCode(status);
-        let responseMessage: string | undefined;
-        let responseDetails: any[] | undefined;
-
-        if (typeof res.message === 'string') {
-          responseMessage = res.message;
-        } else if (Array.isArray(res.message) && res.message.length > 0) {
-          responseMessage = res.message.join(' | ');
-          responseDetails = res.details ?? res.message;
-        } else if (res.error && typeof res.error === 'string') {
-          responseMessage = res.error;
-        }
-
-        message = responseMessage || this.mapStatusToPtMessage(status);
-        code = responseCode;
-        details = responseDetails ?? res.details;
-      }
+      const { resolvedMessage, resolvedCode, resolvedDetails } = this.resolveResponse(res, status);
+      message = resolvedMessage;
+      code = resolvedCode;
+      details = resolvedDetails;
     } else if (exception instanceof Error) {
       message = exception.message || message;
       code = 'UNHANDLED_ERROR';
@@ -63,6 +46,36 @@ export class HttpExceptionFilter implements ExceptionFilter {
         requestId: request.requestId
       }
     });
+  }
+
+  private resolveResponse(res: any, status: number) {
+    if (typeof res === 'string') {
+      return {
+        resolvedMessage: this.mapStatusToPtMessage(status),
+        resolvedCode: this.mapStatusToCode(status),
+        resolvedDetails: undefined
+      };
+    }
+
+    const responseCode = res.code || this.mapStatusToCode(status);
+    let responseMessage: string | undefined;
+    let responseDetails: any[] | undefined;
+
+    if (typeof res.message === 'string') {
+      responseMessage = res.message;
+    } else if (Array.isArray(res.message) && res.message.length > 0) {
+      responseMessage = res.message.join(' | ');
+      responseDetails = res.details ?? res.message;
+    } else if (res.error && typeof res.error === 'string') {
+      responseMessage = res.error;
+    }
+
+    const userMessage = this.toFriendlyMessage(responseCode, responseMessage, status);
+    return {
+      resolvedMessage: userMessage,
+      resolvedCode: responseCode,
+      resolvedDetails: responseDetails ?? res.details
+    };
   }
 
   private mapStatusToCode(status: number) {
@@ -85,17 +98,42 @@ export class HttpExceptionFilter implements ExceptionFilter {
   private mapStatusToPtMessage(status: number) {
     switch (status) {
       case HttpStatus.BAD_REQUEST:
-        return 'Erro de validação';
+        return 'Dados invalidos. Verifique e tente novamente.';
       case HttpStatus.UNAUTHORIZED:
-        return 'Não autorizado';
+        return 'Login necessario para continuar.';
       case HttpStatus.FORBIDDEN:
-        return 'Acesso negado';
+        return 'Voce nao tem permissao para esta acao.';
       case HttpStatus.NOT_FOUND:
-        return 'Não encontrado';
+        return 'Registro nao encontrado.';
       case HttpStatus.CONFLICT:
-        return 'Conflito';
+        return 'Conflito ao processar. Tente novamente.';
       default:
-        return 'Erro';
+        return 'Erro ao processar sua solicitacao.';
     }
+  }
+
+  private toFriendlyMessage(code: string, raw?: string, status?: number) {
+    const map: Record<string, string> = {
+      VALIDATION_ERROR: 'Dados invalidos. Verifique os campos.',
+      ALREADY_PAID: 'Este registro ja foi quitado.',
+      OVERPAY: 'Valor informado maior que o saldo.',
+      PAYMENT_MISMATCH: 'A soma dos pagamentos deve bater com o total.',
+      INSTALLMENT_NOT_FOUND: 'Parcela nao encontrada.',
+      NOT_FOUND: 'Registro nao encontrado.',
+      UNAUTHORIZED: 'Login necessario para continuar.',
+      FORBIDDEN: 'Voce nao tem permissao para esta acao.',
+      ACCOUNT_SUSPENDED: 'Conta suspensa por atraso. Regularize para voltar a usar.',
+      DUPLICATE_REF: 'Ja existe um lancamento para este identificador.'
+    };
+    if (map[code]) {
+      return map[code];
+    }
+    if (raw && typeof raw === 'string') {
+      return raw;
+    }
+    if (status) {
+      return this.mapStatusToPtMessage(status);
+    }
+    return 'Erro ao processar sua solicitacao.';
   }
 }

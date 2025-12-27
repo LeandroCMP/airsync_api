@@ -72,7 +72,22 @@ export class SubscriptionInvoice {
   reminderBeforeSentAt?: Date;
 
   @Prop()
+  reminderAtDueSentAt?: Date;
+
+  @Prop()
+  reminderMidSentAt?: Date;
+
+  @Prop()
   reminderAfterSentAt?: Date;
+
+  @Prop()
+  gatewayPaymentIntentId?: string;
+
+  @Prop()
+  gatewayPaymentStatus?: string;
+
+  @Prop()
+  gatewayClientSecret?: string;
 }
 
 export type SubscriptionInvoiceDocument = SubscriptionInvoice & Document;

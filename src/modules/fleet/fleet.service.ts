@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { FleetVehicle, FleetVehicleDocument } from './fleet-vehicle.schema';
@@ -10,6 +10,8 @@ import { FinanceService } from '../finance/finance.service';
 
 @Injectable()
 export class FleetService {
+  private readonly logger = new Logger(FleetService.name);
+
   constructor(
     @InjectModel(FleetVehicle.name) private readonly fleetModel: Model<FleetVehicleDocument>,
     private readonly financeService: FinanceService
@@ -24,10 +26,10 @@ export class FleetService {
         year: dto.year,
         teamId: dto.teamId,
         odometer: dto.odometer || 0,
-        costCenter: dto.costCenter,
         updatedBy: userId,
         deletedAt: null
       });
+      this.logger.log(`Veículo criado | tenant=${tenantId} id=${vehicle._id.toString()} placa=${vehicle.plate}`);
       return vehicle.toObject();
     } catch (err: any) {
       if (err && (err.code === 11000 || /duplicate key/i.test(String(err.message)))) {
@@ -88,18 +90,19 @@ export class FleetService {
   async addCheck(tenantId: string, id: string, dto: VehicleCheckDto) {
     const vehicle = await this.findById(tenantId, id);
     if (dto.km < vehicle.odometer) {
-      throw new BadRequestException({ code: 'ODOMETER_BACKWARDS', message: 'KM informado é menor que o odômetro atual' });
+      throw new BadRequestException({ code: 'ODOMETER_BACKWARDS', message: 'KM informado menor que o odometro atual.' });
     }
     vehicle.checks.push({ ...dto, photos: [] } as any);
     vehicle.odometer = Math.max(vehicle.odometer, dto.km);
     await vehicle.save();
+    this.logger.log(`Check registrado | tenant=${tenantId} veiculo=${id} km=${dto.km}`);
     return vehicle.toObject();
   }
 
   async addFuel(tenantId: string, id: string, dto: VehicleFuelDto, userId: string) {
     const vehicle = await this.findById(tenantId, id);
     if (dto.km < vehicle.odometer) {
-      throw new BadRequestException({ code: 'ODOMETER_BACKWARDS', message: 'KM informado é menor que o odômetro atual' });
+      throw new BadRequestException({ code: 'ODOMETER_BACKWARDS', message: 'KM informado menor que o odometro atual.' });
     }
     const at = (dto as any).at instanceof Date ? (dto as any).at : new Date((dto as any).at);
     const fuelType = String(dto.fuelType);
@@ -121,6 +124,9 @@ export class FleetService {
       description: `Abastecimento ${vehicle.plate} (${dto.liters}L ${fuelType})`,
       ref: `fleet:fuel:${vehicle.id ?? vehicle._id}:${at.toISOString()}`
     });
+    this.logger.log(
+      `Abastecimento registrado | tenant=${tenantId} veiculo=${id} litros=${dto.liters} custo=${dto.cost}`
+    );
     return vehicle.toObject();
   }
 
@@ -165,7 +171,7 @@ export class FleetService {
   async addMaintenance(tenantId: string, id: string, dto: VehicleMaintenanceDto, userId: string) {
     const vehicle = await this.findById(tenantId, id);
     if (dto.atKm < vehicle.odometer) {
-      throw new BadRequestException({ code: 'ODOMETER_BACKWARDS', message: 'KM informado é menor que o odômetro atual' });
+      throw new BadRequestException({ code: 'ODOMETER_BACKWARDS', message: 'KM informado menor que o odometro atual.' });
     }
     vehicle.maintenances.push(dto as any);
     vehicle.odometer = Math.max(vehicle.odometer, dto.atKm);
@@ -177,28 +183,30 @@ export class FleetService {
       amount: dto.cost,
       date,
       category: 'fleet_maintenance',
-      description: `Manutenção ${vehicle.plate}: ${dto.type}`,
+      description: `Manutencao ${vehicle.plate}: ${dto.type}`,
       ref: `fleet:maint:${vehicle.id ?? vehicle._id}:${date.toISOString()}`
     });
+    this.logger.log(
+      `Manutenção registrada | tenant=${tenantId} veiculo=${id} tipo=${dto.type} custo=${dto.cost}`
+    );
     return vehicle.toObject();
   }
 
   async update(
     tenantId: string,
     id: string,
-    dto: Partial<{ plate: string; model?: string; year?: number; teamId?: string; odometer?: number; costCenter?: string }>,
+    dto: Partial<{ plate: string; model?: string; year?: number; teamId?: string; odometer?: number }>,
     userId: string
   ) {
     const vehicle = await this.findById(tenantId, id);
     if (dto.odometer !== undefined && dto.odometer < vehicle.odometer) {
-      throw new BadRequestException({ code: 'ODOMETER_BACKWARDS', message: 'KM informado é menor que o odômetro atual' });
+      throw new BadRequestException({ code: 'ODOMETER_BACKWARDS', message: 'KM informado menor que o odometro atual.' });
     }
     if (dto.plate !== undefined) vehicle.plate = dto.plate;
     if (dto.model !== undefined) (vehicle as any).model = dto.model;
     if (dto.year !== undefined) vehicle.year = dto.year as any;
     if (dto.teamId !== undefined) vehicle.teamId = dto.teamId;
     if (dto.odometer !== undefined) vehicle.odometer = dto.odometer as any;
-    if (dto.costCenter !== undefined) vehicle.costCenter = dto.costCenter;
     vehicle.updatedBy = userId;
     try {
       await vehicle.save();
@@ -208,6 +216,7 @@ export class FleetService {
       }
       throw err;
     }
+    this.logger.log(`Veículo atualizado | tenant=${tenantId} id=${id}`);
     return vehicle.toObject();
   }
 
@@ -216,6 +225,7 @@ export class FleetService {
     vehicle.deletedAt = new Date();
     vehicle.updatedBy = userId;
     await vehicle.save();
+    this.logger.log(`Veículo removido (soft) | tenant=${tenantId} id=${id}`);
     return vehicle.toObject();
   }
 
@@ -232,7 +242,11 @@ export class FleetService {
     if (!amount || amount <= 0) {
       return;
     }
-    const tx = await this.financeService.create(
+    const existing = await this.financeService.findByRef(tenantId, ref);
+    if (existing) {
+      return;
+    }
+    await this.financeService.create(
       tenantId,
       {
         type: 'payable',
@@ -244,17 +258,5 @@ export class FleetService {
       },
       userId
     );
-    const txId = tx?._id?.toString?.() ?? tx?._id;
-    if (txId) {
-      await this.financeService.pay(
-        tenantId,
-        txId,
-        {
-          method: 'CASH',
-          amount
-        },
-        userId
-      );
-    }
   }
 }

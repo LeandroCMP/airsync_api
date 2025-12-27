@@ -23,6 +23,9 @@ export class FinancePayment {
 
   @Prop()
   txid?: string;
+
+  @Prop()
+  idempotencyKey?: string;
 }
 
 const FinancePaymentSchema = SchemaFactory.createForClass(FinancePayment);
@@ -37,6 +40,9 @@ export class FinanceInstallment {
 
   @Prop({ required: true })
   amount: number;
+
+  @Prop({ default: 'BRL' })
+  currency?: string;
 
   @Prop({ default: false })
   paid: boolean;
@@ -90,3 +96,4 @@ export type FinanceTransactionDocument = FinanceTransaction & Document;
 export const FinanceTransactionSchema = SchemaFactory.createForClass(FinanceTransaction);
 FinanceTransactionSchema.index({ tenantId: 1, type: 1, dueDate: 1 });
 FinanceTransactionSchema.index({ tenantId: 1, paid: 1 });
+FinanceTransactionSchema.index({ tenantId: 1, ref: 1 }, { unique: true, sparse: true });

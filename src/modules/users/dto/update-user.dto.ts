@@ -20,6 +20,14 @@ export class UpdateUserDto {
   @IsOptional()
   role?: UserRole;
 
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @IsString()
+  @IsOptional()
+  document?: string;
+
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
@@ -55,4 +63,8 @@ export class UpdateUserDto {
   @IsBoolean()
   @IsOptional()
   active?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  mustChangePassword?: boolean;
 }

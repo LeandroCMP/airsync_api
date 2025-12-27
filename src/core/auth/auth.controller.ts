@@ -11,10 +11,14 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { TenantService } from '../tenancy/tenant.service';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly tenantService: TenantService
+  ) {}
 
   @Post('register')
   @Public()
@@ -61,7 +65,9 @@ export class AuthController {
 
   @Get('me')
   async me(@CurrentUser() user: any) {
-    return user;
+    const tenant = user?.tenantId ? await this.tenantService.findById(user.tenantId) : null;
+    const billingStatus = (tenant as any)?.billingStatus;
+    return { ...user, billingStatus, accountSuspended: billingStatus === 'suspended' };
   }
 
   @Patch('me')

@@ -24,10 +24,6 @@ class PurchaseItemDto {
   @IsString()
   @IsOptional()
   orderId?: string;
-
-  @IsString()
-  @IsOptional()
-  costCenterId?: string;
 }
 
 export class CreatePurchaseDto {

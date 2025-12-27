@@ -52,6 +52,12 @@ export class BillingItem {
   @Prop({ required: true })
   name: string;
 
+  @Prop()
+  serviceTypeCode?: string;
+
+  @Prop()
+  nextMaintenanceInDays?: number;
+
   @Prop({ required: true })
   qty: number;
 
@@ -173,9 +179,6 @@ export class Order {
   paymentNetTotal?: number;
 
   @Prop()
-  costCenterId?: string;
-
-  @Prop()
   saleId?: string;
 
   @Prop({ type: Object, default: {} })
@@ -187,8 +190,8 @@ export class Order {
     total?: number;
   };
 
-  @Prop({ type: [String], default: [] })
-  costCenters?: string[];
+  @Prop({ default: 0 })
+  margin?: number;
 
   @Prop()
   financeTransactionId?: string;

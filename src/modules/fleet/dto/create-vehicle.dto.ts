@@ -2,14 +2,14 @@ import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateVehicleDto {
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Informe a placa.' })
   plate: string;
 
   @IsString()
   @IsOptional()
   model?: string;
 
-  @IsNumber()
+  @IsNumber({}, { message: 'Ano deve ser numerico.' })
   @IsOptional()
   year?: number;
 
@@ -17,11 +17,7 @@ export class CreateVehicleDto {
   @IsOptional()
   teamId?: string;
 
-  @IsNumber()
+  @IsNumber({}, { message: 'Odometro deve ser numerico.' })
   @IsOptional()
   odometer?: number;
-
-  @IsString()
-  @IsOptional()
-  costCenter?: string;
 }

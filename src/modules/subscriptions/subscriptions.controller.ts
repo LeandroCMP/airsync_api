@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { SubscriptionsService } from './subscriptions.service';
 import { TenantId } from '../../common/decorators/tenant.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -6,6 +6,9 @@ import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { PayInvoiceDto } from './dto/pay-invoice.dto';
 import { NegotiateInvoiceDto } from './dto/negotiate-invoice.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CreatePaymentIntentDto } from './dto/create-payment-intent.dto';
+import { CreateCarnetDto } from './dto/create-carnet.dto';
+import { Public } from '../../common/decorators/public.decorator';
 
 @Controller('subscriptions')
 export class SubscriptionsController {
@@ -42,6 +45,12 @@ export class SubscriptionsController {
     return this.subscriptionsService.listInvoices(tenantId, { status: status as any, from, to });
   }
 
+  @Post('invoices/carnet')
+  @Roles('owner')
+  async createCarnet(@TenantId() tenantId: string, @Body() dto: CreateCarnetDto) {
+    return this.subscriptionsService.createCarnet(tenantId, dto);
+  }
+
   @Post('invoices/:id/pay')
   @Roles('owner')
   async payInvoice(
@@ -70,5 +79,34 @@ export class SubscriptionsController {
   async alerts(@TenantId() tenantId: string) {
     return this.subscriptionsService.getAlerts(tenantId);
   }
-}
 
+  @Post('billing/run')
+  @Roles('owner')
+  async runBilling(@TenantId() tenantId: string) {
+    return this.subscriptionsService.runBillingCycle(tenantId);
+  }
+
+  @Get('overview')
+  @Roles('owner')
+  async overview(@TenantId() tenantId: string) {
+    return this.subscriptionsService.getFinancialOverview(tenantId);
+  }
+
+  @Post('invoices/:id/intent')
+  @Roles('owner')
+  async createPaymentIntent(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: CreatePaymentIntentDto
+  ) {
+    return this.subscriptionsService.createPaymentIntent(tenantId, id, dto);
+  }
+
+  @Post('webhooks/stripe')
+  @Public()
+  async stripeWebhook(@Req() req: any, @Headers('stripe-signature') signature: string) {
+    const payload: Buffer =
+      (req.rawBody as Buffer) || (Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.from(JSON.stringify(req.body)));
+    return this.subscriptionsService.handleStripeWebhook(payload, signature);
+  }
+}

@@ -1,4 +1,5 @@
 import { IsArray, IsOptional, IsString } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class UpdateClientDto {
   @IsString()
@@ -9,17 +10,13 @@ export class UpdateClientDto {
   @IsOptional()
   docNumber?: string;
 
-  @IsArray()
   @IsOptional()
-  phones?: string[];
+  @Transform(({ value }) => (Array.isArray(value) ? value : value ? [value] : []))
+  phones?: string[] | string;
 
-  @IsArray()
   @IsOptional()
-  emails?: string[];
-
-  @IsArray()
-  @IsOptional()
-  tags?: string[];
+  @Transform(({ value }) => (Array.isArray(value) ? value : value ? [value] : []))
+  emails?: string[] | string;
 
   @IsString()
   @IsOptional()

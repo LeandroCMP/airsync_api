@@ -13,10 +13,18 @@ import { EquipmentHistoryModule } from '../equipment-history/equipment-history.m
 import { TenancyModule } from '../../core/tenancy/tenancy.module';
 import { OpenAiModule } from '../../core/openai/openai.module';
 import { PurchasesModule } from '../purchases/purchases.module';
+import { ServiceType, ServiceTypeSchema } from './service-type.schema';
+import { MaintenanceReminder, MaintenanceReminderSchema } from './maintenance-reminder.schema';
+import { MaintenanceService } from './maintenance.service';
+import { MaintenanceController } from './maintenance.controller';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([{ name: Order.name, schema: OrderSchema }]),
+    MongooseModule.forFeature([
+      { name: Order.name, schema: OrderSchema },
+      { name: ServiceType.name, schema: ServiceTypeSchema },
+      { name: MaintenanceReminder.name, schema: MaintenanceReminderSchema }
+    ]),
     InventoryModule,
     FinanceModule,
     PdfModule,
@@ -26,8 +34,8 @@ import { PurchasesModule } from '../purchases/purchases.module';
     OpenAiModule,
     PurchasesModule
   ],
-  controllers: [OrdersController, OrdersInsightsController],
-  providers: [OrdersService, OrdersInsightsService],
-  exports: [OrdersService]
+  controllers: [OrdersController, OrdersInsightsController, MaintenanceController],
+  providers: [OrdersService, OrdersInsightsService, MaintenanceService],
+  exports: [OrdersService, MaintenanceService]
 })
 export class OrdersModule {}

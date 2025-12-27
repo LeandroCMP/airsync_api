@@ -85,10 +85,9 @@ export class SaleOrder {
     subtotal: number;
     discount: number;
     total: number;
+    cogs?: number;
+    margin?: number;
   };
-
-  @Prop()
-  costCenterId?: string;
 
   @Prop({ default: false })
   installationRequired: boolean;

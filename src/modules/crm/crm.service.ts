@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { TimelineEntry, TimelineEntryDocument } from './timeline-entry.schema';
@@ -14,6 +14,10 @@ export class CrmService {
   ) {}
 
   async addEntry(tenantId: string, dto: CreateTimelineDto, userId: string) {
+    const exists = await this.clientModel.exists({ tenantId, _id: dto.clientId, deletedAt: null } as any);
+    if (!exists) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Cliente nao encontrado.' });
+    }
     const entry = await this.timelineModel.create({
       tenantId,
       clientId: dto.clientId,
@@ -26,6 +30,10 @@ export class CrmService {
   }
 
   async submitNps(tenantId: string, dto: SubmitNpsDto) {
+    const exists = await this.clientModel.exists({ tenantId, _id: dto.clientId, deletedAt: null } as any);
+    if (!exists) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Cliente nao encontrado.' });
+    }
     const entry = await this.timelineModel.create({
       tenantId,
       clientId: dto.clientId,

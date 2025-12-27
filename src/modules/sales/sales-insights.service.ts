@@ -28,7 +28,7 @@ export class SalesInsightsService {
   private async buildSaleContext(tenantId: string, saleId: string) {
     const sale = await this.saleModel.findOne({ tenantId, _id: saleId, deletedAt: null }).lean();
     if (!sale) {
-      throw new NotFoundException({ code: 'SALE_NOT_FOUND', message: 'Sale not found' });
+      throw new NotFoundException({ code: 'SALE_NOT_FOUND', message: 'Venda nao encontrada.' });
     }
     const items = (sale.items || [])
       .map(
@@ -43,7 +43,6 @@ export class SalesInsightsService {
       `Status: ${sale.status}`,
       `Client: ${sale.clientId}`,
       `Location: ${sale.locationId}`,
-      `Cost center: ${sale.costCenterId || 'n/a'}`,
       `Totals: subtotal ${sale.totals.subtotal}, discount ${sale.totals.discount}, total ${sale.totals.total}`,
       `Items:\n${items || 'none'}`,
       `Move request: ${
@@ -55,4 +54,3 @@ export class SalesInsightsService {
     ].join('\n');
   }
 }
-

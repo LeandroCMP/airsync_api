@@ -12,10 +12,9 @@ export class FinanceDashboardController {
   @Permissions('finance.read')
   async dashboard(
     @TenantId() tenantId: string,
-    @Query('month') month?: string,
-    @Query('costCenterId') costCenterId?: string
+    @Query('month') month?: string
   ) {
-    return this.financeService.dashboard(tenantId, month, costCenterId);
+    return this.financeService.dashboard(tenantId, month);
   }
 
   @Get('audit')
@@ -37,23 +36,5 @@ export class FinanceDashboardController {
     @Body() dto: AllocateIndirectCostsDto
   ) {
     return this.financeService.allocateIndirectCosts(tenantId, dto);
-  }
-
-  @Get('reconciliation/payments')
-  @Permissions('finance.read')
-  async reconcilePayments(
-    @TenantId() tenantId: string,
-    @Query('scope') scope?: 'orders' | 'purchases' | 'all'
-  ) {
-    return this.financeService.reconcilePayments(tenantId, scope || 'all');
-  }
-
-  @Get('reconciliation/report')
-  @Permissions('finance.read')
-  async reconciliationReport(
-    @TenantId() tenantId: string,
-    @Query('scope') scope?: 'orders' | 'purchases' | 'all'
-  ) {
-    return this.financeService.reconcilePaymentsReport(tenantId, scope || 'all');
   }
 }

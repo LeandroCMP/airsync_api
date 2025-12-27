@@ -5,11 +5,16 @@ export class PayTransactionDto {
   method: 'PIX' | 'CASH' | 'CARD' | 'CARD_CREDIT' | 'CARD_DEBIT' | 'BANK_TRANSFER' | 'CHEQUE';
 
   @IsNumber()
-  amount: number;
+  @IsOptional()
+  amount?: number;
 
   @IsString()
   @IsOptional()
   txid?: string;
+
+  @IsString()
+  @IsOptional()
+  idempotencyKey?: string;
 
   @IsNumber()
   @IsOptional()

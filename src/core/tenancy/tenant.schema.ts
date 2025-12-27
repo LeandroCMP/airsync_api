@@ -18,14 +18,47 @@ export class Tenant {
   @Prop({ required: true, unique: true })
   name: string;
 
+  @Prop({ unique: true, sparse: true })
+  document?: string;
+
+  @Prop({ unique: true, sparse: true })
+  contactEmail?: string;
+
+  @Prop()
+  contactPhone?: string;
+
   @Prop({ type: [String], default: [] })
   domains: string[];
 
   @Prop({ default: true })
   active: boolean;
 
+  @Prop({ enum: ['pending', 'active', 'suspended'], default: 'pending' })
+  status?: 'pending' | 'active' | 'suspended';
+
   @Prop()
   pixKey?: string;
+
+  @Prop()
+  stripeCustomerId?: string;
+
+  @Prop({ default: false })
+  whatsappEnabled?: boolean;
+
+  @Prop()
+  whatsappToken?: string;
+
+  @Prop()
+  whatsappPhoneId?: string;
+
+  @Prop()
+  whatsappWabaId?: string;
+
+  @Prop()
+  whatsappExpiresAt?: Date;
+
+  @Prop()
+  whatsappConnectedAt?: Date;
 
   @Prop({ type: [TenantCreditFeeSchema], default: [] })
   creditFees: TenantCreditFee[];
@@ -48,3 +81,5 @@ export class Tenant {
 
 export type TenantDocument = Tenant & Document;
 export const TenantSchema = SchemaFactory.createForClass(Tenant);
+TenantSchema.index({ document: 1 }, { unique: true, sparse: true });
+TenantSchema.index({ contactEmail: 1 }, { unique: true, sparse: true });

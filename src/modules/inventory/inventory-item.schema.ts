@@ -48,11 +48,8 @@ export class InventoryItem {
   @Prop({ required: true })
   name: string;
 
-  @Prop({ required: true })
-  sku: string;
-
   @Prop()
-  barcode?: string;
+  sku?: string;
 
   @Prop({ default: 'un' })
   unit: string;
@@ -106,5 +103,4 @@ export class InventoryItem {
 export type InventoryItemDocument = InventoryItem & Document;
 export const InventoryItemSchema = SchemaFactory.createForClass(InventoryItem);
 InventoryItemSchema.index({ tenantId: 1, sku: 1 }, { unique: true, partialFilterExpression: { deletedAt: null } });
-InventoryItemSchema.index({ tenantId: 1, barcode: 1 });
 InventoryItemSchema.index({ tenantId: 1, categoryId: 1 });

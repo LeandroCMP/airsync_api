@@ -28,6 +28,14 @@ export class CreateUserDto {
   @IsEnum(['owner', 'admin', 'manager', 'tech', 'viewer'])
   role: UserRole;
 
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @IsString()
+  @IsOptional()
+  document?: string;
+
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
@@ -63,4 +71,8 @@ export class CreateUserDto {
   @IsBoolean()
   @IsOptional()
   active?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  mustChangePassword?: boolean;
 }

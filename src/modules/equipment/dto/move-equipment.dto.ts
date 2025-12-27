@@ -6,15 +6,14 @@ export class MoveEquipmentDto {
   toClientId?: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Informe o local de destino.' })
   toLocationId: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Informe o comodo/ambiente de destino.' })
   toRoom: string;
 
   @IsString()
   @IsOptional()
   notes?: string;
 }
-

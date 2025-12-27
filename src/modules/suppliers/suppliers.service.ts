@@ -40,7 +40,7 @@ export class SuppliersService {
   async update(tenantId: string, id: string, dto: UpdateSupplierDto, userId: string) {
     const supplier = await this.supplierModel.findOne({ tenantId, _id: id, deletedAt: null });
     if (!supplier) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Supplier not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Fornecedor nao encontrado.' });
     }
     if (dto.name !== undefined) supplier.name = dto.name;
     if (dto.docNumber !== undefined) supplier.docNumber = dto.docNumber;
@@ -60,7 +60,7 @@ export class SuppliersService {
   async findById(tenantId: string, id: string) {
     const supplier = await this.supplierModel.findOne({ tenantId, _id: id, deletedAt: null });
     if (!supplier) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Supplier not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Fornecedor nao encontrado.' });
     }
     return supplier;
   }
@@ -68,7 +68,7 @@ export class SuppliersService {
   async remove(tenantId: string, id: string, userId: string) {
     const supplier = await this.supplierModel.findOne({ tenantId, _id: id, deletedAt: null });
     if (!supplier) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Supplier not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Fornecedor nao encontrado.' });
     }
     supplier.deletedAt = new Date();
     supplier.updatedBy = userId;

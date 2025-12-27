@@ -2,16 +2,12 @@ import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-valida
 
 export class CreateInventoryItemDto {
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Informe o nome do item.' })
   name: string;
 
   @IsString()
-  @IsNotEmpty()
-  sku: string;
-
-  @IsString()
   @IsOptional()
-  barcode?: string;
+  sku?: string;
 
   @IsString()
   @IsOptional()
@@ -45,7 +41,7 @@ export class CreateInventoryItemDto {
   @IsOptional()
   markupPercent?: number;
 
-  @IsEnum(['manual', 'category'])
+  @IsEnum(['manual', 'category'], { message: 'Modo de precificacao deve ser manual ou category.' })
   @IsOptional()
   pricingMode?: 'manual' | 'category';
 }

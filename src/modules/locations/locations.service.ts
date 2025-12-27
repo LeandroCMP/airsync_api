@@ -32,7 +32,7 @@ export class LocationsService {
   async findById(tenantId: string, id: string) {
     const location = await this.locationModel.findOne({ tenantId, _id: id, deletedAt: null });
     if (!location) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Location not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Local nao encontrado.' });
     }
     return location;
   }

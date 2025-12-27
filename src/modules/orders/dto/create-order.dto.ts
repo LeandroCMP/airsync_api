@@ -46,6 +46,15 @@ class BillingItemDto {
   @IsString()
   name: string;
 
+  @IsString()
+  @IsOptional()
+  serviceTypeCode?: string;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber()
+  nextMaintenanceInDays?: number;
+
   @IsNumber()
   @Type(() => Number)
   qty: number;
@@ -67,10 +76,6 @@ export class CreateOrderDto {
   @IsString()
   @IsOptional()
   equipmentId?: string;
-
-  @IsString()
-  @IsOptional()
-  costCenterId?: string;
 
   @IsString()
   @IsOptional()
@@ -114,4 +119,3 @@ export class CreateOrderDto {
   @IsOptional()
   notes?: string;
 }
-

@@ -33,7 +33,7 @@ export class InventoryCategoriesService {
   async update(tenantId: string, id: string, dto: UpdateInventoryCategoryDto) {
     const category = await this.categoryModel.findOne({ tenantId, _id: id });
     if (!category) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Inventory category not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Categoria de estoque nao encontrada.' });
     }
     if (dto.name !== undefined) category.name = dto.name;
     if (dto.markupPercent !== undefined) category.markupPercent = dto.markupPercent;
@@ -49,7 +49,7 @@ export class InventoryCategoriesService {
   async remove(tenantId: string, id: string) {
     const category = await this.categoryModel.findOne({ tenantId, _id: id });
     if (!category) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Inventory category not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Categoria de estoque nao encontrada.' });
     }
     await category.deleteOne();
     await this.itemModel.updateMany(
@@ -79,4 +79,3 @@ export class InventoryCategoriesService {
     return this.categoryModel.findOne({ tenantId, _id: id });
   }
 }
-

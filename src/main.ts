@@ -3,7 +3,7 @@ import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import * as helmet from 'helmet';
-import { json, urlencoded } from 'express';
+import { json, urlencoded, raw } from 'express';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
@@ -29,6 +29,17 @@ async function bootstrap() {
     credentials: true
   });
   app.use(helmet.default());
+  const globalPrefix = 'v1';
+  app.setGlobalPrefix(globalPrefix);
+  const stripeWebhookPath = `/${globalPrefix}/subscriptions/webhooks/stripe`;
+  app.use(
+    stripeWebhookPath,
+    raw({ type: 'application/json' }),
+    (req, _res, next) => {
+      (req as any).rawBody = req.body;
+      next();
+    }
+  );
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ extended: true, limit: '10mb' }));
   app.use(RequestIdMiddleware);
@@ -42,7 +53,6 @@ async function bootstrap() {
   expressApp.set('uploadDir', uploadDir);
   app.use('/files', (await import('express')).static(join(process.cwd(), uploadDir)));
 
-  app.setGlobalPrefix('v1');
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

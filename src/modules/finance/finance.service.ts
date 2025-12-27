@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { FinanceTransaction, FinanceTransactionDocument } from './finance-transaction.schema';
@@ -10,6 +10,8 @@ import { AllocateIndirectCostsDto } from './dto/allocate-indirect-costs.dto';
 
 @Injectable()
 export class FinanceService {
+  private readonly logger = new Logger(FinanceService.name);
+
   constructor(
     @InjectModel(FinanceTransaction.name)
     private readonly financeModel: Model<FinanceTransactionDocument>,
@@ -19,36 +21,56 @@ export class FinanceService {
     private readonly purchaseModel: Model<PurchaseDocument>
   ) {}
 
+  private normalizeAmount(value: number) {
+    return Number(Number(value || 0).toFixed(2));
+  }
+
   async create(tenantId: string, dto: CreateFinanceTransactionDto, userId: string, session?: any) {
-    const transaction = await this.financeModel.create([
-      {
-        tenantId,
-        type: dto.type,
-        ref: dto.ref,
-        partyId: dto.partyId,
-        category: dto.category,
-        description: dto.description,
-        dueDate: dto.dueDate,
-        amount: dto.amount,
-        installments: dto.installments,
-        payments: [],
-        updatedBy: userId
+    const amount = this.normalizeAmount(dto.amount);
+    if (amount <= 0) {
+      throw new BadRequestException({ code: 'INVALID_AMOUNT', message: 'Informe um valor maior que zero.' });
+    }
+    try {
+      const transaction = await this.financeModel.create(
+        [
+          {
+            tenantId,
+            type: dto.type,
+            ref: dto.ref,
+            partyId: dto.partyId,
+            category: dto.category,
+            description: dto.description,
+            dueDate: dto.dueDate,
+            amount,
+            currency: (dto as any).currency || 'BRL',
+            installments: dto.installments,
+            payments: [],
+            updatedBy: userId
+          }
+        ],
+        { session }
+      );
+      this.logger.log(`Transação criada | tenant=${tenantId} ref=${dto.ref} tipo=${dto.type} valor=${amount}`);
+      return transaction[0].toObject();
+    } catch (err: any) {
+      if (err && err.code === 11000) {
+      throw new BadRequestException({ code: 'DUPLICATE_REF', message: 'Ja existe um lancamento para este identificador.' });
       }
-    ], { session });
-    return transaction[0].toObject();
+      throw err;
+    }
   }
 
   async findById(tenantId: string, id: string) {
     const tx = await this.financeModel.findOne({ tenantId, _id: id });
     if (!tx) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Finance transaction not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Lancamento financeiro nao encontrado.' });
     }
     return tx;
   }
 
   async list(
     tenantId: string,
-    filters: { type?: string; paid?: string; from?: string; to?: string }
+    filters: { type?: string; paid?: string; from?: string; to?: string; page?: number; limit?: number }
   ) {
     const query: any = { tenantId };
     if (filters.type) query.type = filters.type;
@@ -58,7 +80,23 @@ export class FinanceService {
       if (filters.from) query.dueDate.$gte = new Date(filters.from);
       if (filters.to) query.dueDate.$lte = new Date(filters.to);
     }
-    return this.financeModel.find(query).lean();
+    const page = Math.max(1, Number(filters.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(filters.limit) || 20));
+    const skip = (page - 1) * limit;
+    const [items, total] = await Promise.all([
+      this.financeModel.find(query).skip(skip).limit(limit).lean(),
+      this.financeModel.countDocuments(query)
+    ]);
+    return { items, page, limit, total };
+  }
+
+  async findByRef(tenantId: string, ref: string) {
+    return this.financeModel.findOne({ tenantId, ref });
+  }
+
+  async voidByRef(tenantId: string, ref: string) {
+    await this.financeModel.deleteOne({ tenantId, ref });
+    this.logger.log(`Transação anulada | tenant=${tenantId} ref=${ref}`);
   }
 
   async remove(tenantId: string, id: string, session?: any) {
@@ -71,16 +109,62 @@ export class FinanceService {
 
   async pay(tenantId: string, id: string, dto: PayTransactionDto, userId: string) {
     const tx = await this.findById(tenantId, id);
-    const payment = { method: dto.method, amount: dto.amount, txid: dto.txid, at: new Date() };
+    if (tx.paid) {
+      throw new BadRequestException({ code: 'ALREADY_PAID', message: 'Este lancamento ja foi quitado.' });
+    }
+    const payment = {
+      method: dto.method,
+      amount: 0,
+      txid: dto.txid,
+      idempotencyKey: dto.idempotencyKey,
+      at: new Date()
+    };
+    // Idempotência: se já existe pagamento com mesmo txid ou idempotencyKey, retorna sem duplicar
+    const dup = tx.payments.find(
+      (p: any) => (dto.txid && p.txid === dto.txid) || (dto.idempotencyKey && p.idempotencyKey === dto.idempotencyKey)
+    );
+    if (dup) {
+      this.logger.warn(`Pagamento ignorado (idempotente) | tenant=${tenantId} ref=${tx.ref}`);
+      return tx.toObject();
+    }
+    const resolveRemaining = () => {
+      if (dto.installmentNumber !== undefined && tx.installments?.length) {
+        const installment = tx.installments.find((i) => i.number === dto.installmentNumber);
+        if (!installment) {
+          throw new BadRequestException({ code: 'INSTALLMENT_NOT_FOUND', message: 'Parcela nao encontrada.' });
+        }
+        const paidAmount = installment.payments.reduce((sum, p) => sum + p.amount, 0);
+        return this.normalizeAmount(installment.amount - paidAmount);
+      }
+      const paidAmount = tx.payments.reduce((sum, p) => sum + p.amount, 0);
+      return this.normalizeAmount(tx.amount - paidAmount);
+    };
+
+    const payAmount = dto.amount !== undefined ? this.normalizeAmount(dto.amount) : resolveRemaining();
+    if (payAmount <= 0) {
+      throw new BadRequestException({ code: 'INVALID_AMOUNT', message: 'Valor invalido ou saldo ja quitado.' });
+    }
+    payment.amount = payAmount;
+
     if (dto.installmentNumber !== undefined && tx.installments?.length) {
       const installment = tx.installments.find((i) => i.number === dto.installmentNumber);
       if (!installment) {
-        throw new BadRequestException({ code: 'INSTALLMENT_NOT_FOUND', message: 'Installment not found' });
+        throw new BadRequestException({ code: 'INSTALLMENT_NOT_FOUND', message: 'Parcela nao encontrada.' });
+      }
+      const paidAmount = installment.payments.reduce((sum, p) => sum + p.amount, 0);
+      const remaining = installment.amount - paidAmount;
+      if (payAmount > remaining + 0.01) {
+        throw new BadRequestException({ code: 'OVERPAY', message: 'Valor maior que o saldo desta parcela.' });
       }
       installment.payments.push(payment as any);
-      const paidAmount = installment.payments.reduce((sum, p) => sum + p.amount, 0);
-      installment.paid = paidAmount >= installment.amount - 0.01;
+      const newPaidAmount = installment.payments.reduce((sum, p) => sum + p.amount, 0);
+      installment.paid = newPaidAmount >= installment.amount - 0.01;
     } else {
+      const paidAmount = tx.payments.reduce((sum, p) => sum + p.amount, 0);
+      const remaining = tx.amount - paidAmount;
+      if (payAmount > remaining + 0.01) {
+        throw new BadRequestException({ code: 'OVERPAY', message: 'Valor maior que o saldo em aberto.' });
+      }
       tx.payments.push(payment as any);
     }
     const totalPaid = (
@@ -92,19 +176,17 @@ export class FinanceService {
     }
     tx.updatedBy = userId;
     await tx.save();
+    this.logger.log(`Pagamento registrado | tenant=${tenantId} ref=${tx.ref} valor=${payAmount} metodo=${dto.method}`);
     return tx.toObject();
   }
 
-  async dashboard(tenantId: string, month?: string, costCenterId?: string) {
+  async dashboard(tenantId: string, month?: string) {
     const { start, end } = this.resolveMonthRange(month);
     const orderQuery: any = {
       tenantId,
       status: 'done',
       finishedAt: { $gte: start, $lte: end }
     };
-    if (costCenterId) {
-      orderQuery.$or = [{ costCenterId }, { costCenters: costCenterId }];
-    }
     const orders = await this.orderModel.find(orderQuery).lean();
 
     const orderCount = orders.length;
@@ -162,11 +244,7 @@ export class FinanceService {
       .find({ tenantId, type: 'payable', paid: false })
       .lean();
 
-    const purchaseQuery: any = { tenantId, deletedAt: null };
-    if (costCenterId) {
-      purchaseQuery['items.costCenterId'] = costCenterId;
-    }
-    const purchases = await this.purchaseModel.find(purchaseQuery).lean();
+    const purchases = await this.purchaseModel.find({ tenantId, deletedAt: null }).lean();
     const purchaseApprovalStats = purchases.reduce(
       (acc, purchase: any) => {
         if (purchase.status === 'pending') acc.pending += 1;
@@ -417,13 +495,13 @@ export class FinanceService {
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
       throw new BadRequestException({
         code: 'INVALID_PERIOD',
-        message: 'from and to must be valid ISO date strings'
+        message: 'Datas invalidas. Use formato ISO (AAAA-MM-DD).'
       });
     }
     if (end < start) {
       throw new BadRequestException({
         code: 'INVALID_PERIOD',
-        message: 'to must be after from'
+        message: 'Data final deve ser maior que a inicial.'
       });
     }
     const categories =
@@ -478,134 +556,6 @@ export class FinanceService {
       affected += 1;
     }
     return { totalIndirect: Number(totalIndirect.toFixed(2)), affectedOrders: affected };
-  }
-
-  async reconcilePayments(tenantId: string, scope: 'orders' | 'purchases' | 'all' = 'all') {
-    const includeOrders = scope === 'all' || scope === 'orders';
-    const includePurchases = scope === 'all' || scope === 'purchases';
-    const txMap = new Map<string, any>();
-    const financeTxs = await this.financeModel.find({ tenantId }).lean();
-    for (const tx of financeTxs) {
-      txMap.set(String(tx._id), tx);
-    }
-    const result: {
-      orders?: any[];
-      purchases?: any[];
-    } = {};
-    if (includeOrders) {
-      const orders = await this.orderModel.find({ tenantId, deletedAt: null }).lean();
-      const orderIssues = [];
-      for (const order of orders) {
-        const billingTotal = Number(order?.billing?.total || 0);
-        const paymentSum = Array.isArray(order?.payments)
-          ? order.payments.reduce((sum: number, payment: any) => sum + (payment?.amount || 0), 0)
-          : 0;
-        const tx = order.financeTransactionId
-          ? txMap.get(String(order.financeTransactionId))
-          : null;
-        if (Math.abs(billingTotal - paymentSum) > 0.01) {
-          orderIssues.push({
-            orderId: order._id,
-            issue: 'payment_sum_mismatch',
-            billingTotal,
-            paymentSum
-          });
-          continue;
-        }
-        if (!tx) {
-          orderIssues.push({
-            orderId: order._id,
-            issue: 'finance_tx_missing'
-          });
-          continue;
-        }
-        if (Math.abs((tx.amount || 0) - billingTotal) > 0.01) {
-          orderIssues.push({
-            orderId: order._id,
-            issue: 'finance_amount_mismatch',
-            billingTotal,
-            financeAmount: tx.amount
-          });
-        }
-        const orderPaid = order?.billing?.status === 'paid';
-        if (orderPaid !== tx.paid) {
-          orderIssues.push({
-            orderId: order._id,
-            issue: 'finance_paid_flag_mismatch',
-            orderPaid,
-            financePaid: tx.paid
-          });
-        }
-      }
-      result.orders = orderIssues;
-    }
-    if (includePurchases) {
-      const purchases = await this.purchaseModel.find({ tenantId, deletedAt: null }).lean();
-      const purchaseIssues = [];
-      for (const purchase of purchases) {
-        const total = Number(purchase?.totals?.total || 0);
-        if (purchase.status === 'canceled' || purchase.status === 'draft') {
-          continue;
-        }
-        const tx = purchase.financeTransactionId
-          ? txMap.get(String(purchase.financeTransactionId))
-          : null;
-        if (!tx) {
-          purchaseIssues.push({
-            purchaseId: purchase._id,
-            issue: 'finance_tx_missing'
-          });
-          continue;
-        }
-        if (Math.abs((tx.amount || 0) - total) > 0.01) {
-          purchaseIssues.push({
-            purchaseId: purchase._id,
-            issue: 'finance_amount_mismatch',
-            purchaseTotal: total,
-            financeAmount: tx.amount
-          });
-        }
-      }
-      result.purchases = purchaseIssues;
-    }
-    return result;
-  }
-
-  async reconcilePaymentsReport(
-    tenantId: string,
-    scope: 'orders' | 'purchases' | 'all' = 'all'
-  ) {
-    const reconciliation = await this.reconcilePayments(tenantId, scope);
-    const withSuggestion = (issue: any, entity: 'order' | 'purchase') => {
-      let suggestion = '';
-      switch (issue.issue) {
-        case 'finance_tx_missing':
-          suggestion =
-            entity === 'order'
-              ? 'Criar transação financeira para esta OS e registrar o recebimento.'
-              : 'Criar contas a pagar para esta compra e registrar o pagamento.';
-          break;
-        case 'finance_amount_mismatch':
-          suggestion =
-            entity === 'order'
-              ? 'Ajustar o valor da transação financeira para coincidir com o faturamento da OS.'
-              : 'Ajustar o valor da transação financeira para refletir o total da compra.';
-          break;
-        case 'payment_sum_mismatch':
-          suggestion = 'Verificar pagamentos registrados na OS e corrigir para bater com o total faturado.';
-          break;
-        case 'finance_paid_flag_mismatch':
-          suggestion = 'Atualizar o status pago da OS ou da transação financeira para manter consistência.';
-          break;
-        default:
-          suggestion = 'Analisar o lançamento e corrigir manualmente.';
-      }
-      return { ...issue, suggestion };
-    };
-    return {
-      orders: reconciliation.orders?.map((issue) => withSuggestion(issue, 'order')) || [],
-      purchases: reconciliation.purchases?.map((issue) => withSuggestion(issue, 'purchase')) || []
-    };
   }
 
   private resolveMonthRange(month?: string) {

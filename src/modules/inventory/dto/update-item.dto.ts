@@ -7,10 +7,6 @@ export class UpdateInventoryItemDto {
 
   @IsString()
   @IsOptional()
-  barcode?: string;
-
-  @IsString()
-  @IsOptional()
   unit?: string;
 
   @IsNumber()
@@ -41,7 +37,7 @@ export class UpdateInventoryItemDto {
   @IsOptional()
   markupPercent?: number;
 
-  @IsEnum(['manual', 'category'])
+  @IsEnum(['manual', 'category'], { message: 'Modo de precificacao deve ser manual ou category.' })
   @IsOptional()
   pricingMode?: 'manual' | 'category';
 }

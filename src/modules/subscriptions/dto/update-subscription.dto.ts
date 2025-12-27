@@ -2,26 +2,6 @@ import { IsEmail, IsEnum, IsNumber, IsOptional, IsString, Max, Min } from 'class
 import { SubscriptionPaymentMethod } from '../subscription.schema';
 
 export class UpdateSubscriptionDto {
-  @IsString()
-  @IsOptional()
-  planCode?: string;
-
-  @IsString()
-  @IsOptional()
-  planName?: string;
-
-  @IsNumber()
-  @IsOptional()
-  amount?: number;
-
-  @IsString()
-  @IsOptional()
-  currency?: string;
-
-  @IsEnum(['monthly', 'annual'])
-  @IsOptional()
-  interval?: 'monthly' | 'annual';
-
   @IsNumber()
   @Min(1)
   @Max(28)
@@ -44,4 +24,3 @@ export class UpdateSubscriptionDto {
   @IsOptional()
   preferredPaymentMethod?: SubscriptionPaymentMethod;
 }
-

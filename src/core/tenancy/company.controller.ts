@@ -5,6 +5,8 @@ import { Permissions } from '../../common/decorators/permissions.decorator';
 import { UpdateTenantProfileDto } from './dto/update-tenant-profile.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { withAudit } from '../../common/utils/audit.util';
+import { UpdateWhatsappDto } from './dto/update-whatsapp.dto';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 @Controller('company')
 export class CompanyController {
@@ -56,6 +58,26 @@ export class CompanyController {
   ) {
     const before = await this.tenantService.findById(tenantId);
     const updated = await this.tenantService.updateProfile(tenantId, profile || {});
+    return withAudit(updated, {
+      tenantId,
+      entity: 'tenant',
+      entityId: tenantId,
+      action: 'update',
+      before,
+      after: updated,
+      by: user.id
+    });
+  }
+
+  @Put('whatsapp')
+  @Roles('owner')
+  async updateWhatsapp(
+    @TenantId() tenantId: string,
+    @CurrentUser() user: any,
+    @Body() dto: UpdateWhatsappDto
+  ) {
+    const before = await this.tenantService.findById(tenantId);
+    const updated = await this.tenantService.updateWhatsappConfig(tenantId, dto);
     return withAudit(updated, {
       tenantId,
       entity: 'tenant',

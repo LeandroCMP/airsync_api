@@ -30,7 +30,7 @@ export class FleetController {
       },
       comEquipe: {
         summary: 'Com equipe e centro de custo',
-        value: { plate: 'XYZ4E56', model: 'Ducato', year: 2022, teamId: 'TEAM123', costCenter: 'OPERACOES' }
+        value: { plate: 'XYZ4E56', model: 'Ducato', year: 2022, teamId: 'TEAM123' }
       }
     }
   })
@@ -208,8 +208,7 @@ export class FleetController {
   @ApiBody({
     schema: {
       example: {
-        teamId: 'TEAM123',
-        costCenter: 'OPERACOES'
+        teamId: 'TEAM123'
       }
     }
   })
@@ -217,7 +216,7 @@ export class FleetController {
     @TenantId() tenantId: string,
     @CurrentUser() user: any,
     @Param('id') id: string,
-    @Body() dto: Partial<{ plate: string; model?: string; year?: number; teamId?: string; odometer?: number; costCenter?: string }>
+    @Body() dto: Partial<{ plate: string; model?: string; year?: number; teamId?: string; odometer?: number }>
   ) {
     const before = await this.fleetService.findById(tenantId, id);
     const updated = await this.fleetService.update(tenantId, id, dto, user.id);

@@ -3,7 +3,7 @@ import { IsArray, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNe
 
 class PlanDto {
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Informe o nome do plano.' })
   name: string;
 
   @Type(() => Number)
@@ -15,7 +15,7 @@ class PlanDto {
 
 export class CreateContractDto {
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Selecione o cliente.' })
   clientId: string;
 
   @IsArray()
@@ -26,10 +26,12 @@ export class CreateContractDto {
   @Type(() => PlanDto)
   plan: PlanDto;
 
-  @IsNumber()
+  @IsNumber({}, { message: 'Informe o valor mensal do contrato.' })
   priceMonthly: number;
 
-  @IsEnum(['active', 'paused', 'ended'])
+  @IsEnum(['active', 'paused', 'ended'], {
+    message: 'Status invalido. Use active, paused ou ended.'
+  })
   status: 'active' | 'paused' | 'ended';
 
   @IsArray()

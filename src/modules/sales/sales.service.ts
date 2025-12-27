@@ -35,7 +35,6 @@ export class SalesService {
       tenantId,
       clientId: dto.clientId,
       locationId: dto.locationId,
-      costCenterId: dto.costCenterId,
       items,
       totals,
       installationRequired: requiresInstall,
@@ -66,7 +65,7 @@ export class SalesService {
   async findById(tenantId: string, id: string) {
     const sale = await this.saleModel.findOne({ tenantId, _id: id, deletedAt: null });
     if (!sale) {
-      throw new NotFoundException({ code: 'SALE_NOT_FOUND', message: 'Sale not found' });
+      throw new NotFoundException({ code: 'SALE_NOT_FOUND', message: 'Venda nao encontrada.' });
     }
     return sale;
   }
@@ -76,12 +75,11 @@ export class SalesService {
     if (sale.status !== 'draft' && sale.status !== 'quoted') {
       throw new BadRequestException({
         code: 'SALE_UPDATE_FORBIDDEN',
-        message: 'Only draft or quoted sales can be updated'
+        message: 'Apenas vendas em rascunho ou cotacao podem ser editadas.'
       });
     }
     if (dto.clientId !== undefined) sale.clientId = dto.clientId;
     if (dto.locationId !== undefined) sale.locationId = dto.locationId;
-    if (dto.costCenterId !== undefined) sale.costCenterId = dto.costCenterId;
     if (dto.notes !== undefined) sale.notes = dto.notes;
     if (dto.autoCreateOrder !== undefined) sale.autoCreateOrder = dto.autoCreateOrder;
     if (dto.moveRequest !== undefined) sale.moveRequest = dto.moveRequest as any;
@@ -108,10 +106,14 @@ export class SalesService {
     options?: { forceOrder?: boolean }
   ) {
     const sale = await this.findById(tenantId, id);
+    if (sale.status === 'approved' || sale.status === 'in_progress') {
+      // Idempotente: já aprovada/OS criada, apenas retorna
+      return sale.toObject();
+    }
     if (sale.status !== 'draft' && sale.status !== 'quoted') {
       throw new BadRequestException({
         code: 'SALE_APPROVE_INVALID',
-        message: 'Sale must be in draft or quoted status to approve'
+        message: 'Aprovacao permitida apenas para rascunho ou cotacao.'
       });
     }
     sale.status = 'approved';
@@ -139,20 +141,24 @@ export class SalesService {
   async fulfill(tenantId: string, id: string, userId: string) {
     const sale = await this.findById(tenantId, id);
     if (sale.status === 'canceled' || sale.status === 'fulfilled') {
-      throw new BadRequestException({ code: 'SALE_FULFILL_INVALID', message: 'Sale already finalized' });
+      throw new BadRequestException({ code: 'SALE_FULFILL_INVALID', message: 'Venda ja finalizada.' });
     }
     if (sale.linkedOrderId) {
       const order = await this.ordersService.findById(tenantId, sale.linkedOrderId);
       if (order.status !== 'done') {
         throw new BadRequestException({
           code: 'SALE_ORDER_PENDING',
-          message: 'Linked work order must be finished before fulfilling the sale'
+          message: 'Finalize a OS vinculada antes de concluir a venda.'
         });
       }
     }
     if (sale.moveRequest) {
       await this.equipmentService.move(tenantId, sale.moveRequest.equipmentId, sale.moveRequest, userId);
     }
+    // Calcula CMV e margem simples
+    const cogs = await this.computeCogs(tenantId, sale);
+    sale.totals.cogs = cogs;
+    sale.totals.margin = Number((sale.totals.total - cogs).toFixed(2));
     sale.status = 'fulfilled';
     this.recordHistory(sale, 'fulfilled', userId);
     await sale.save();
@@ -162,12 +168,26 @@ export class SalesService {
   async cancel(tenantId: string, id: string, userId: string) {
     const sale = await this.findById(tenantId, id);
     if (sale.status === 'fulfilled') {
-      throw new BadRequestException({ code: 'SALE_CANCEL_FORBIDDEN', message: 'Cannot cancel a fulfilled sale' });
+      throw new BadRequestException({ code: 'SALE_CANCEL_FORBIDDEN', message: 'Nao e possivel cancelar uma venda finalizada.' });
     }
     sale.status = 'canceled';
     this.recordHistory(sale, 'canceled', userId);
+    // Anula título financeiro associado
+    await this.financeService.voidByRef(tenantId, `sale:${sale.id}`);
+    sale.financeTransactionId = undefined as any;
     await sale.save();
     return sale.toObject();
+  }
+
+  private async computeCogs(tenantId: string, sale: any) {
+    let total = 0;
+    for (const item of sale.items || []) {
+      if (!item.inventoryItemId) continue;
+      const inv = await this.inventoryService.findById(tenantId, item.inventoryItemId);
+      const cost = inv?.avgCost ?? 0;
+      total += (item.qty || 0) * (cost || 0);
+    }
+    return Number(total.toFixed(2));
   }
 
   private computeTotals(items: any[], discount = 0) {
@@ -230,7 +250,6 @@ export class SalesService {
       clientId: sale.clientId,
       locationId: sale.locationId,
       equipmentId: sale.moveRequest?.equipmentId,
-      costCenterId: sale.costCenterId,
       saleId: sale.id,
       materials,
       billingItems,

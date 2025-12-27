@@ -34,7 +34,6 @@ export class FleetVehicleDto {
   @ApiPropertyOptional({ type: [FleetCheckDtoDoc] }) checks?: FleetCheckDtoDoc[];
   @ApiPropertyOptional({ type: [FuelLogDtoDoc] }) fuelLogs?: FuelLogDtoDoc[];
   @ApiPropertyOptional({ type: [MaintenanceEntryDtoDoc] }) maintenances?: MaintenanceEntryDtoDoc[];
-  @ApiPropertyOptional({ example: 'OPERACOES' }) costCenter?: string;
   @ApiPropertyOptional({ example: '2025-10-31T09:00:00.000Z' }) createdAt?: Date;
   @ApiPropertyOptional({ example: '2025-10-31T12:05:00.000Z' }) updatedAt?: Date;
 }
@@ -59,7 +58,6 @@ export class PagedFleetVehiclesDto {
         maintenances: [
           { type: 'Troca de óleo', at: '2025-10-31T12:00:00.000Z', atKm: 12500, cost: 180 }
         ],
-        costCenter: 'OPERACOES',
         createdAt: '2025-10-31T09:00:00.000Z',
         updatedAt: '2025-10-31T12:05:00.000Z'
       }

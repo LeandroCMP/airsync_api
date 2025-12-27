@@ -51,7 +51,16 @@ export class FleetInsightsService {
     if (!entries?.length) return null;
     return entries
       .slice()
-      .sort((a, b) => new Date(b.at || b.km || 0).getTime() - new Date(a.at || a.km || 0).getTime())[0];
+      .sort((a, b) => {
+        const bDate = this.normalizeDate(b);
+        const aDate = this.normalizeDate(a);
+        if (bDate !== aDate) {
+          return (bDate ?? -Infinity) - (aDate ?? -Infinity);
+        }
+        const bKm = this.normalizeKm(b);
+        const aKm = this.normalizeKm(a);
+        return (bKm ?? 0) - (aKm ?? 0);
+      })[0];
   }
 
   private fmt(date?: any) {
@@ -70,5 +79,20 @@ export class FleetInsightsService {
     }
     return this.openAi.generateInsight(prompt);
   }
-}
 
+  private normalizeDate(entry: any): number | undefined {
+    if (!entry) return undefined;
+    const raw = entry.at;
+    if (!raw) return undefined;
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return undefined;
+    return d.getTime();
+  }
+
+  private normalizeKm(entry: any): number | undefined {
+    if (!entry) return undefined;
+    if (entry.km !== undefined) return Number(entry.km);
+    if (entry.atKm !== undefined) return Number(entry.atKm);
+    return undefined;
+  }
+}

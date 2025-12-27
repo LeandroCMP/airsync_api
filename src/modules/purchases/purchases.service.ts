@@ -75,7 +75,7 @@ export class PurchasesService {
   async findById(tenantId: string, id: string) {
     const purchase = await this.purchaseModel.findOne({ tenantId, _id: id, deletedAt: null });
     if (!purchase) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Purchase not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Compra nao encontrada.' });
     }
     return purchase;
   }
@@ -99,12 +99,15 @@ export class PurchasesService {
     return executeWithTransactionIfSupported(this.purchaseModel.db, async (session) => {
       const purchase = await this.loadPurchaseForUpdate(tenantId, id, session);
       if (purchase.status === 'received') {
-        throw new BadRequestException({ code: 'PURCHASE_ALREADY_RECEIVED', message: 'Purchase already received' });
+        throw new BadRequestException({
+          code: 'PURCHASE_ALREADY_RECEIVED',
+          message: 'Compra ja recebida.'
+        });
       }
       if (!['ordered', 'approved'].includes(purchase.status)) {
         throw new BadRequestException({
           code: 'PURCHASE_RECEIVE_INVALID',
-          message: 'Purchase must be ordered before receiving'
+          message: 'Compra precisa estar encomendada ou aprovada antes de receber.'
         });
       }
       purchase.status = 'received';
@@ -132,13 +135,13 @@ export class PurchasesService {
       if (purchase.status === 'received') {
         throw new BadRequestException({
           code: 'PURCHASE_ALREADY_RECEIVED',
-          message: 'Cannot cancel a purchase that has already been received'
+          message: 'Compra ja recebida; nao e possivel cancelar.'
         });
       }
       if (purchase.status === 'canceled') {
         throw new BadRequestException({
           code: 'PURCHASE_ALREADY_CANCELED',
-          message: 'Purchase already canceled'
+          message: 'Compra ja cancelada.'
         });
       }
       purchase.status = 'canceled';
@@ -197,11 +200,7 @@ export class PurchasesService {
     if (!purchase.financeTransactionId) {
       return;
     }
-    await this.financeService.remove(
-      tenantId,
-      purchase.financeTransactionId,
-      session || undefined
-    );
+    await this.financeService.voidByRef(tenantId, `purchase:${purchase._id.toString()}`);
     purchase.financeTransactionId = undefined;
     await purchase.save(session ? { session } : undefined);
   }
@@ -280,20 +279,16 @@ export class PurchasesService {
       string,
       {
         amount: number;
-        costCenters: Set<string>;
       }
     >();
     for (const item of purchase.items || []) {
       if (!item.orderId) continue;
       const key = String(item.orderId);
       if (!map.has(key)) {
-        map.set(key, { amount: 0, costCenters: new Set<string>() });
+        map.set(key, { amount: 0 });
       }
       const entry = map.get(key)!;
       entry.amount += (item.qty || 0) * (item.unitCost || 0);
-      if (item.costCenterId) {
-        entry.costCenters.add(item.costCenterId);
-      }
     }
     for (const [orderId, entry] of map.entries()) {
       if (!entry.amount) continue;
@@ -307,9 +302,6 @@ export class PurchasesService {
       costs.purchases = Number(purchasesTotal.toFixed(2));
       costs.total = Number((materials + labor + overhead + costs.purchases).toFixed(2));
       order.costs = costs;
-      const existingCenters = new Set(order.costCenters || []);
-      entry.costCenters.forEach((center) => existingCenters.add(center));
-      order.costCenters = Array.from(existingCenters);
       await order.save();
     }
   }

@@ -21,5 +21,24 @@ export default () => ({
   },
   openai: {
     apiKey: process.env.OPENAI_API_KEY || ''
+  },
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY || '',
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
+    publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || ''
+  },
+  subscriptions: {
+    amountInCents: process.env.SUBSCRIPTION_AMOUNT_IN_CENTS === 'true'
+  },
+  email: {
+    resendApiKey: process.env.RESEND_API_KEY || '',
+    from: process.env.EMAIL_FROM || ''
+  },
+  whatsapp: {
+    appId: process.env.WHATSAPP_APP_ID || '',
+    appSecret: process.env.WHATSAPP_APP_SECRET || '',
+    redirectUri: process.env.WHATSAPP_REDIRECT_URI || '',
+    verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || '',
+    graphVersion: process.env.WHATSAPP_GRAPH_VERSION || 'v19.0'
   }
 });

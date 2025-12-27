@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Tenant, TenantDocument } from './tenant.schema';
 import { UpdateTenantProfileDto } from './dto/update-tenant-profile.dto';
+import { UpdateWhatsappDto } from './dto/update-whatsapp.dto';
 
 @Injectable()
 export class TenantService {
@@ -57,6 +58,19 @@ export class TenantService {
     if (dto.debitFeePercent !== undefined) update.debitFeePercent = dto.debitFeePercent;
     if (dto.chequeFeePercent !== undefined) update.chequeFeePercent = dto.chequeFeePercent;
     const tenant = await this.tenantModel.findByIdAndUpdate(tenantId, update, { new: true, lean: true });
+    return tenant;
+  }
+
+  async updateWhatsappConfig(tenantId: string, dto: UpdateWhatsappDto) {
+    const update: any = {};
+    if (dto.token !== undefined) update.whatsappToken = dto.token;
+    if (dto.phoneId !== undefined) update.whatsappPhoneId = dto.phoneId;
+    if (dto.wabaId !== undefined) update.whatsappWabaId = dto.wabaId;
+    update.whatsappEnabled = !!(dto.token && dto.phoneId);
+    const tenant = await this.tenantModel.findByIdAndUpdate(tenantId, update, { new: true, lean: true });
+    if (!tenant) {
+      throw new BadRequestException({ code: 'TENANT_NOT_FOUND', message: 'Tenant nao encontrado.' });
+    }
     return tenant;
   }
 }

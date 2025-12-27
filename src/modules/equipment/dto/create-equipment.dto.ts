@@ -1,43 +1,43 @@
 import { IsDateString, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateEquipmentDto {
-  @IsString({ message: 'clientId must be a string' })
-  @IsNotEmpty({ message: 'clientId is required' })
+  @IsString({ message: 'Informe o cliente.' })
+  @IsNotEmpty({ message: 'Informe o cliente.' })
   clientId: string;
 
-  @IsString({ message: 'locationId must be a string' })
-  @IsNotEmpty({ message: 'locationId is required' })
+  @IsString({ message: 'Informe o local.' })
+  @IsNotEmpty({ message: 'Informe o local.' })
   locationId: string;
 
   @IsOptional()
-  @IsString({ message: 'brand must be a string' })
+  @IsString({ message: 'Marca deve ser texto.' })
   brand?: string;
 
   @IsOptional()
-  @IsString({ message: 'model must be a string' })
+  @IsString({ message: 'Modelo deve ser texto.' })
   model?: string;
 
   @IsOptional()
-  @IsString({ message: 'type must be a string' })
+  @IsString({ message: 'Tipo deve ser texto.' })
   type?: string;
 
   @IsOptional()
-  @IsNumber({}, { message: 'btus must be a number' })
+  @IsNumber({}, { message: 'BTUs deve ser um numero.' })
   btus?: number;
 
   @IsOptional()
-  @IsDateString({}, { message: 'installDate must be an ISO date (YYYY-MM-DD)' })
+  @IsDateString({}, { message: 'Data de instalacao deve ser AAAA-MM-DD.' })
   installDate?: string;
 
   @IsOptional()
-  @IsString({ message: 'serial must be a string' })
+  @IsString({ message: 'Numero de serie deve ser texto.' })
   serial?: string;
 
-  @IsString({ message: 'room must be a string' })
-  @IsNotEmpty({ message: 'room is required' })
+  @IsString({ message: 'Informe o ambiente/comodo.' })
+  @IsNotEmpty({ message: 'Informe o ambiente/comodo.' })
   room: string;
 
   @IsOptional()
-  @IsString({ message: 'notes must be a string' })
+  @IsString({ message: 'Observacoes devem ser texto.' })
   notes?: string;
 }

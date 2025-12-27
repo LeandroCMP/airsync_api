@@ -26,15 +26,17 @@ import { JwtAuthGuard } from './core/auth/guards/jwt-auth.guard';
 import { TenantGuard } from './core/tenancy/tenant.guard';
 import { RbacGuard } from './core/rbac/rbac.guard';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { SuspendedGuard } from './common/guards/suspended.guard';
 import { AuditModule } from './core/audit/audit.module';
-import { CostCentersModule } from './modules/cost-centers/cost-centers.module';
 import { NotificationsModule } from './core/notifications/notifications.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { SignupModule } from './modules/signup/signup.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -42,6 +44,8 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
         uri: config.get<string>('database.uri')
       })
     }),
+    ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
+    ScheduleModule.forRoot(),
     FilesModule,
     AuditModule,
     PdfModule,
@@ -61,17 +65,19 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
     CrmModule,
     ReportsModule,
     SyncModule,
-    CostCentersModule,
     NotificationsModule,
     SalesModule,
     SubscriptionsModule,
+    SignupModule,
     ...(process.env.NODE_ENV === 'test' ? [] : [SeedModule])
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: TenantGuard },
     { provide: APP_GUARD, useClass: RbacGuard },
-    { provide: APP_INTERCEPTOR, useClass: AuditInterceptor }
+    { provide: APP_GUARD, useClass: SuspendedGuard },
+    { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor }
   ]
 })
 export class AppModule {}

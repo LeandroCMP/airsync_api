@@ -37,7 +37,7 @@ export class ContractsService {
   async findById(tenantId: string, id: string) {
     const contract = await this.contractModel.findOne({ tenantId, _id: id });
     if (!contract) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Contract not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Contrato nao encontrado.' });
     }
     return contract;
   }

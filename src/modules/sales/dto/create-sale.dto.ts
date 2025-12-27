@@ -64,10 +64,6 @@ export class CreateSaleDto {
   @IsNotEmpty()
   locationId: string;
 
-  @IsString()
-  @IsOptional()
-  costCenterId?: string;
-
   @ValidateNested({ each: true })
   @Type(() => SaleItemDto)
   @IsArray()

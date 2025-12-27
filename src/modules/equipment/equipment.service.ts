@@ -44,7 +44,7 @@ export class EquipmentService {
   async findById(tenantId: string, id: string) {
     const equipment = await this.equipmentModel.findOne({ tenantId, _id: id, deletedAt: null });
     if (!equipment) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Equipment not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Equipamento nao encontrado.' });
     }
     return equipment;
   }

@@ -22,11 +22,11 @@ class ReplaceNewEquipmentDto {
   @IsOptional()
   type?: string;
 
-  @IsNumber()
+  @IsNumber({}, { message: 'BTUs deve ser um numero.' })
   @IsOptional()
   btus?: number;
 
-  @IsDateString()
+  @IsDateString({}, { message: 'Data de instalacao deve ser AAAA-MM-DD.' })
   @IsOptional()
   installDate?: Date;
 

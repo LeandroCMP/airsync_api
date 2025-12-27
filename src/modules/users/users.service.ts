@@ -95,7 +95,7 @@ export class UsersService {
   async create(tenantId: string, dto: CreateUserDto, by: string) {
     const exists = await this.userModel.exists({ email: dto.email.toLowerCase(), deletedAt: null });
     if (exists) {
-      throw new ConflictException({ code: 'EMAIL_TAKEN', message: 'Email already in use' });
+      throw new ConflictException({ code: 'EMAIL_TAKEN', message: 'E-mail ja esta em uso.' });
     }
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const compensation = this.buildCompensationFromCreate(dto);
@@ -109,14 +109,17 @@ export class UsersService {
         role: dto.role,
         permissions: this.resolvePermissions(dto.role, dto.permissions),
         hourlyCost: dto.hourlyCost,
+        phone: dto.phone,
+        document: dto.document,
         compensation,
+        mustChangePassword: dto.mustChangePassword ?? false,
         active: dto.active ?? true,
         updatedBy: by,
         deletedAt: null
       });
     } catch (err: any) {
       if (err && (err.code === 11000 || /duplicate key/i.test(String(err.message)))) {
-        throw new ConflictException({ code: 'EMAIL_TAKEN', message: 'Email already in use' });
+        throw new ConflictException({ code: 'EMAIL_TAKEN', message: 'E-mail ja esta em uso.' });
       }
       throw err;
     }
@@ -131,10 +134,14 @@ export class UsersService {
     return this.userModel.findOne({ email: email.toLowerCase(), deletedAt: null });
   }
 
-  async updateSelf(tenantId: string, userId: string, dto: { name?: string; email?: string }) {
+  async updateSelf(
+    tenantId: string,
+    userId: string,
+    dto: { name?: string; email?: string; phone?: string; document?: string }
+  ) {
     const user = await this.userModel.findOne({ tenantId, _id: userId, deletedAt: null });
     if (!user) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Usuario nao encontrado.' });
     }
     if (dto.email && dto.email.toLowerCase() !== user.email) {
       const exists = await this.userModel.exists({
@@ -143,12 +150,18 @@ export class UsersService {
         _id: { $ne: user._id }
       });
       if (exists) {
-        throw new ConflictException({ code: 'EMAIL_TAKEN', message: 'Email already in use' });
+        throw new ConflictException({ code: 'EMAIL_TAKEN', message: 'E-mail ja esta em uso.' });
       }
       user.email = dto.email.toLowerCase();
     }
     if (dto.name !== undefined) {
       user.name = dto.name;
+    }
+    if (dto.phone !== undefined) {
+      user.phone = dto.phone;
+    }
+    if (dto.document !== undefined) {
+      user.document = dto.document;
     }
     user.updatedBy = userId;
     await user.save();
@@ -158,7 +171,7 @@ export class UsersService {
   async changePassword(tenantId: string, userId: string, currentPassword: string, newPassword: string) {
     const user = await this.userModel.findOne({ tenantId, _id: userId, deletedAt: null });
     if (!user) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Usuario nao encontrado.' });
     }
     const matches = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!matches) {
@@ -168,6 +181,7 @@ export class UsersService {
       });
     }
     user.passwordHash = await bcrypt.hash(newPassword, 10);
+    user.mustChangePassword = false;
     user.updatedBy = userId;
     await user.save();
   }
@@ -175,7 +189,7 @@ export class UsersService {
   async forcePasswordChange(tenantId: string, userId: string, newPassword: string, updatedBy: string) {
     const user = await this.userModel.findOne({ tenantId, _id: userId, deletedAt: null });
     if (!user) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Usuario nao encontrado.' });
     }
     user.passwordHash = await bcrypt.hash(newPassword, 10);
     user.updatedBy = updatedBy;
@@ -199,7 +213,7 @@ export class UsersService {
   async update(tenantId: string, id: string, dto: UpdateUserDto, by: string) {
     const user = await this.findById(tenantId, id);
     if (!user) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Usuario nao encontrado.' });
     }
     const targetRole = (dto.role || user.role) as UserRole;
     if (dto.permissions !== undefined) {
@@ -209,7 +223,10 @@ export class UsersService {
     }
     if (dto.name) user.name = dto.name;
     if (dto.role) user.role = dto.role;
+    if (dto.phone !== undefined) user.phone = dto.phone;
+    if (dto.document !== undefined) user.document = dto.document;
     if (dto.hourlyCost !== undefined) user.hourlyCost = dto.hourlyCost;
+    if (dto.mustChangePassword !== undefined) user.mustChangePassword = dto.mustChangePassword;
     if (dto.active !== undefined) user.active = dto.active;
     this.applyCompensationUpdates(user, dto);
     user.updatedBy = by;
@@ -310,7 +327,7 @@ export class UsersService {
   ) {
     const user = await this.findById(tenantId, userId);
     if (!user) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Usuario nao encontrado.' });
     }
     const isPaidRequested = dto.status === 'paid' || dto.paidAt !== undefined;
     const payroll = new this.payrollModel({
@@ -378,7 +395,7 @@ export class UsersService {
   async listPayroll(tenantId: string, userId: string) {
     const user = await this.findById(tenantId, userId);
     if (!user) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Usuario nao encontrado.' });
     }
     const entries = await this.payrollModel
       .find({ tenantId, userId })
@@ -390,7 +407,7 @@ export class UsersService {
   async getPayroll(tenantId: string, userId: string, payrollId: string) {
     const payroll = await this.payrollModel.findOne({ tenantId, _id: payrollId, userId });
     if (!payroll) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Payroll entry not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Lancamento de folha nao encontrado.' });
     }
     return this.mapPayroll(payroll);
   }
@@ -404,7 +421,7 @@ export class UsersService {
   ) {
     const payroll = await this.payrollModel.findOne({ tenantId, _id: payrollId, userId });
     if (!payroll) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Payroll entry not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Lancamento de folha nao encontrado.' });
     }
     if (dto.reference) {
       payroll.reference = dto.reference;

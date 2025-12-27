@@ -9,5 +9,12 @@ export class UpdateProfileDto {
   @IsEmail()
   @IsOptional()
   email?: string;
-}
 
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @IsString()
+  @IsOptional()
+  document?: string;
+}

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, ClientSession } from 'mongoose';
 import { InventoryItem, InventoryItemDocument } from './inventory-item.schema';
@@ -27,12 +27,23 @@ export interface DecoratedInventoryItem {
 @Injectable()
 export class InventoryService {
   private static readonly COST_HISTORY_LIMIT = 20;
+  private readonly logger = new Logger(InventoryService.name);
 
   constructor(
     @InjectModel(InventoryItem.name) private readonly inventoryModel: Model<InventoryItemDocument>,
     @InjectModel(InventoryCategory.name)
     private readonly categoryModel: Model<InventoryCategoryDocument>
   ) {}
+
+  private generateSku(name?: string) {
+    const base =
+      name
+        ?.toLowerCase()
+        ?.replace(/[^a-z0-9]+/g, '-')
+        ?.replace(/^-+|-+$/g, '') || 'item';
+    const suffix = Date.now().toString(36);
+    return `${base}-${suffix}`;
+  }
 
   private async getCategory(tenantId: string, categoryId?: string | null) {
     if (!categoryId) {
@@ -70,7 +81,7 @@ export class InventoryService {
       if (!resolvedCategoryId || !categoryDoc) {
         throw new BadRequestException({
           code: 'CATEGORY_REQUIRED',
-          message: 'Category must be provided when pricingMode is category'
+          message: 'Selecione uma categoria para precificacao por categoria.'
         });
       }
       markupPercent = categoryDoc.markupPercent ?? 0;
@@ -86,8 +97,7 @@ export class InventoryService {
     const item = await this.inventoryModel.create({
       tenantId,
       name: dto.name,
-      sku: dto.sku,
-      barcode: dto.barcode,
+      sku: dto.sku?.trim() || this.generateSku(dto.name),
       unit: dto.unit || 'un',
       minQty: dto.minQty || 0,
       maxQty: dto.maxQty,
@@ -104,17 +114,19 @@ export class InventoryService {
       updatedBy: userId,
       deletedAt: null
     });
+    this.logger.log(
+      `Item criado | tenant=${tenantId} id=${item._id.toString()} nome=${item.name} sku=${item.sku}`
+    );
     return item.toObject();
   }
 
   async updateItem(tenantId: string, id: string, dto: UpdateInventoryItemDto, userId: string) {
     const item = await this.inventoryModel.findOne({ tenantId, _id: id, deletedAt: null });
     if (!item) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Inventory item not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Item de estoque nao encontrado.' });
     }
     let avgCostUpdated = false;
     if (dto.name !== undefined) item.name = dto.name;
-    if (dto.barcode !== undefined) item.barcode = dto.barcode;
     if (dto.unit !== undefined) item.unit = dto.unit;
     if (dto.minQty !== undefined) item.minQty = dto.minQty;
     if (dto.maxQty !== undefined) item.maxQty = dto.maxQty;
@@ -142,7 +154,7 @@ export class InventoryService {
       if (!targetCategoryId) {
         throw new BadRequestException({
           code: 'CATEGORY_REQUIRED',
-          message: 'Category must be provided when pricingMode is category'
+          message: 'Selecione uma categoria para precificacao por categoria.'
         });
       }
       const category = await this.getCategory(tenantId, targetCategoryId);
@@ -174,6 +186,7 @@ export class InventoryService {
 
     item.updatedBy = userId;
     await item.save();
+    this.logger.log(`Item atualizado | tenant=${tenantId} id=${id}`);
     return item.toObject();
   }
 
@@ -188,7 +201,7 @@ export class InventoryService {
     }
     if (filters?.text) {
       const regex = new RegExp(filters.text, 'i');
-      query.$or = [{ name: regex }, { sku: regex }, { barcode: regex }];
+      query.$or = [{ name: regex }, { sku: regex }];
     }
 
     const stockStatus = filters?.stockStatus ?? StockStatusFilter.ALL;
@@ -231,7 +244,7 @@ export class InventoryService {
     }
     const item = await query;
     if (!item) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Inventory item not found' });
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Item de estoque nao encontrado.' });
     }
     return item;
   }
@@ -259,7 +272,7 @@ export class InventoryService {
     session?: ClientSession | null
   ) {
     if (dto.qty <= 0) {
-      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Quantity must be positive' });
+      throw new BadRequestException({ code: 'VALIDATION_ERROR', message: 'Quantidade deve ser positiva.' });
     }
     const item = await this.findById(tenantId, dto.itemId, session);
     const available = item.onHand - item.reserved;
@@ -286,7 +299,7 @@ export class InventoryService {
       }
       case 'out': {
         if (item.onHand < dto.qty) {
-          throw new BadRequestException({ code: 'STOCK_ERROR', message: 'Insufficient stock' });
+          throw new BadRequestException({ code: 'STOCK_ERROR', message: 'Estoque insuficiente para essa baixa.' });
         }
         item.onHand -= dto.qty;
         if (dto.ref) {
@@ -300,7 +313,7 @@ export class InventoryService {
       }
       case 'reserve': {
         if (available < dto.qty) {
-          throw new BadRequestException({ code: 'STOCK_RESERVE_ERROR', message: 'Not enough stock to reserve' });
+          throw new BadRequestException({ code: 'STOCK_RESERVE_ERROR', message: 'Estoque insuficiente para reservar.' });
         }
         if (dto.ref) {
           const existingReserve = item.entries.find((entry) => entry.type === 'reserve' && entry.ref === dto.ref);
@@ -448,6 +461,7 @@ export class InventoryService {
     item.deletedAt = new Date();
     item.updatedBy = userId;
     await item.save();
+    this.logger.log(`Item removido (soft) | tenant=${tenantId} id=${id}`);
     return item.toObject();
   }
 

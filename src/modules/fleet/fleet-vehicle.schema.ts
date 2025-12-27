@@ -91,9 +91,6 @@ export class FleetVehicle {
   maintenances: MaintenanceEntry[];
 
   @Prop()
-  costCenter?: string;
-
-  @Prop()
   updatedBy?: string;
 
   @Prop({ default: null })
@@ -106,3 +103,4 @@ FleetVehicleSchema.index(
   { tenantId: 1, plate: 1 },
   { unique: true, partialFilterExpression: { deletedAt: null } }
 );
+FleetVehicleSchema.index({ tenantId: 1, deletedAt: 1 });

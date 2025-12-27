@@ -46,8 +46,17 @@ export class User {
   @Prop()
   hourlyCost?: number;
 
+  @Prop()
+  phone?: string;
+
+  @Prop()
+  document?: string;
+
   @Prop({ type: UserCompensationSchema, default: {} })
   compensation?: UserCompensation;
+
+  @Prop({ default: false })
+  mustChangePassword?: boolean;
 
   @Prop({ default: true })
   active: boolean;
