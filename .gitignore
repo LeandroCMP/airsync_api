@@ -1,0 +1,7 @@
+node_modules
+npm-debug.log*
+dist
+uploads
+uploads-test
+coverage
+coverage-e2e
